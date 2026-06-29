@@ -1,0 +1,63 @@
+#!/bin/sh
+# Maven wrapper script.
+# Auto-downloads Maven on first run if not present.
+
+set -e
+
+find_maven_basedir() {
+  basedir="$1"
+  wdir="$1"
+  while [ "$wdir" != '/' ] ; do
+    if [ -d "$wdir"/.mvn ] ; then
+      basedir=$wdir
+      break
+    fi
+    if [ -d "${wdir}" ]; then
+      wdir=$(cd "$wdir/.."; pwd)
+    fi
+  done
+  echo "${basedir}"
+}
+
+MAVEN_PROJECTBASEDIR="${MAVEN_BASEDIR:-"$(find_maven_basedir "$(pwd)")"}"
+export MAVEN_PROJECTBASEDIR
+
+MAVEN_WRAPPER_JAR="$MAVEN_PROJECTBASEDIR/.mvn/wrapper/maven-wrapper.jar"
+MAVEN_WRAPPER_PROPERTIES="$MAVEN_PROJECTBASEDIR/.mvn/wrapper/maven-wrapper.properties"
+
+if [ -r "$MAVEN_WRAPPER_PROPERTIES" ]; then
+  . "$MAVEN_WRAPPER_PROPERTIES"
+fi
+
+# If wrapper jar exists, run it
+if [ -f "$MAVEN_WRAPPER_JAR" ]; then
+    JAVACMD="${JAVA_HOME:+$JAVA_HOME/bin/}java"
+    exec "$JAVACMD" \
+      -classpath "$MAVEN_WRAPPER_JAR" \
+      "-Dmaven.multiModuleProjectDirectory=${MAVEN_PROJECTBASEDIR}" \
+      org.apache.maven.wrapper.MavenWrapperMain "$@"
+fi
+
+# Try to download wrapper jar if we have a URL
+if [ -n "$wrapperUrl" ] && [ -n "$JAVA_HOME" ]; then
+  echo "Downloading Maven wrapper..."
+  if command -v curl > /dev/null; then
+    curl -sL "$wrapperUrl" -o "$MAVEN_WRAPPER_JAR" || true
+  elif command -v wget > /dev/null; then
+    wget -q "$wrapperUrl" -O "$MAVEN_WRAPPER_JAR" || true
+  fi
+  if [ -s "$MAVEN_WRAPPER_JAR" ]; then
+    exec "$JAVA_HOME/bin/java" \
+      -classpath "$MAVEN_WRAPPER_JAR" \
+      "-Dmaven.multiModuleProjectDirectory=${MAVEN_PROJECTBASEDIR}" \
+      org.apache.maven.wrapper.MavenWrapperMain "$@"
+  fi
+fi
+
+# Fall back to system Maven
+if command -v mvn > /dev/null; then
+  exec mvn "$@"
+fi
+
+echo "Cannot find Maven. Install Maven or set JAVA_HOME so the wrapper can download itself." >&2
+exit 1

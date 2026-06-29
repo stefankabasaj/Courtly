@@ -1,0 +1,11 @@
+# Production-only overrides for application.yml
+# Activate with SPRING_PROFILES_ACTIVE=prod
+
+spring:
+  jpa:
+    show-sql: false
+
+logging:
+  level:
+    com.stefankabasaj.courtly: INFO
+    org.hibernate: WARN

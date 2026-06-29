@@ -1,0 +1,154 @@
+{
+  "info": {
+    "name": "Courtly API",
+    "description": "Complete API collection.\n\n1. Run 'Login' or 'Login as Admin' - token auto-saved to {{token}}\n2. All protected requests use {{token}} automatically\n3. courtId and bookingId are auto-captured after creation",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl",   "value": "http://localhost:8080/api/v1" },
+    { "key": "token",     "value": "" },
+    { "key": "courtId",   "value": "" },
+    { "key": "bookingId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "🔐 Auth",
+      "item": [
+        {
+          "name": "Register User",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/register",
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"stefan@courtly.com\",\n  \"password\": \"Password123!\"\n}" }
+          }
+        },
+        {
+          "name": "Login",
+          "event": [{ "listen": "test", "script": { "exec": ["const j = pm.response.json(); if(j.token) pm.collectionVariables.set('token', j.token); pm.test('200 OK', () => pm.response.to.have.status(200));"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/login",
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"stefan@courtly.com\",\n  \"password\": \"Password123!\"\n}" }
+          }
+        },
+        {
+          "name": "Login as Admin",
+          "event": [{ "listen": "test", "script": { "exec": ["const j = pm.response.json(); if(j.token) pm.collectionVariables.set('token', j.token); pm.test('200 OK', () => pm.response.to.have.status(200));"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/login",
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"admin@courtly.com\",\n  \"password\": \"Admin123!\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "🎾 Courts",
+      "item": [
+        {
+          "name": "Get All Courts",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{baseUrl}}/courts" }
+        },
+        {
+          "name": "Get Court by ID",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{baseUrl}}/courts/{{courtId}}" }
+        },
+        {
+          "name": "Create Court (Admin)",
+          "event": [{ "listen": "test", "script": { "exec": ["const j = pm.response.json(); if(j.id) pm.collectionVariables.set('courtId', j.id); pm.test('201', () => pm.response.to.have.status(201));"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/courts",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Court E - Indoor\",\n  \"surface\": \"ARTIFICIAL\",\n  \"pricePerHour\": 35.00\n}" }
+          }
+        },
+        {
+          "name": "Update Court (Admin)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/courts/{{courtId}}",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Court E - Premium Indoor\",\n  \"surface\": \"ARTIFICIAL\",\n  \"pricePerHour\": 45.00\n}" }
+          }
+        },
+        {
+          "name": "Deactivate Court (Admin)",
+          "request": { "method": "DELETE", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{baseUrl}}/courts/{{courtId}}" }
+        }
+      ]
+    },
+    {
+      "name": "📅 Bookings",
+      "item": [
+        {
+          "name": "Create Booking",
+          "event": [{ "listen": "test", "script": { "exec": ["const j = pm.response.json(); if(j.id) pm.collectionVariables.set('bookingId', j.id); pm.test('201', () => pm.response.to.have.status(201));"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/bookings",
+            "body": { "mode": "raw", "raw": "{\n  \"courtId\": \"{{courtId}}\",\n  \"startTime\": \"2026-09-01T10:00:00\",\n  \"endTime\":   \"2026-09-01T12:00:00\"\n}" }
+          }
+        },
+        {
+          "name": "Get My Bookings",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{baseUrl}}/bookings/my" }
+        },
+        {
+          "name": "Get Booking by ID",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{baseUrl}}/bookings/{{bookingId}}" }
+        },
+        {
+          "name": "Cancel Booking (User)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/bookings/{{bookingId}}/cancel",
+            "body": { "mode": "raw", "raw": "{\n  \"reason\": \"Change of plans\"\n}" }
+          }
+        },
+        {
+          "name": "Admin Cancel Booking",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/bookings/{{bookingId}}/admin-cancel",
+            "body": { "mode": "raw", "raw": "{\n  \"reason\": \"Court emergency maintenance\"\n}" }
+          }
+        },
+        {
+          "name": "Get All Bookings - Paginated (Admin)",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": { "raw": "{{baseUrl}}/bookings?page=0&size=20", "query": [{ "key": "page", "value": "0" }, { "key": "size", "value": "20" }] } }
+        }
+      ]
+    },
+    {
+      "name": "💳 Payments",
+      "item": [
+        {
+          "name": "Process Payment",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/payments/{{bookingId}}",
+            "body": { "mode": "raw", "raw": "{\n  \"paymentMethod\": \"CREDIT_CARD\"\n}" }
+          }
+        },
+        {
+          "name": "Get Payment by Booking",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{baseUrl}}/payments/booking/{{bookingId}}" }
+        }
+      ]
+    },
+    {
+      "name": "❤️ Health",
+      "item": [
+        { "name": "Health Check", "request": { "method": "GET", "url": "{{baseUrl}}/health" } }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+* text=auto eol=lf
+*.java text
+*.yml text
+*.xml text
+*.md text
+*.sql text
+mvnw text eol=lf
+*.jar binary
