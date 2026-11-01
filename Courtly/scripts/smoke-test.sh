@@ -36,8 +36,16 @@ export BOOKING_EXPIRY_CHECK_INTERVAL_MS=2000
 cleanup() {
     status=$?
     if [ "$status" -ne 0 ]; then
-        echo "---- smoke test FAILED, app logs follow ----"
-        "${COMPOSE[@]}" logs app --tail 150 || true
+        echo "---- smoke test FAILED ----"
+        # Kafka's client prints its whole config on startup - filter that out
+        echo "---- app logs ----"
+        "${COMPOSE[@]}" logs app 2>/dev/null | grep -vE '^\S+\s+\|\s+\s' | tail -80 || true
+        echo "---- notification service logs ----"
+        "${COMPOSE[@]}" logs notifications 2>/dev/null | grep -vE '^\S+\s+\|\s+\s' | tail -80 || true
+        echo "---- outbox ----"
+        psql_smoke -c "SELECT event_type, aggregate_id, created_at, published_at FROM courtly.outbox_events ORDER BY created_at" 2>/dev/null || true
+        echo "---- emails in Mailpit ----"
+        curl -s "$MAILPIT/messages?limit=100" | jq -r '.messages[] | "\(.To[0].Address)  \(.Subject)"' 2>/dev/null || true
     fi
     "${COMPOSE[@]}" down -v >/dev/null 2>&1 || true
     if [ "$CREATED_ENV" = true ]; then rm -f .env; fi
