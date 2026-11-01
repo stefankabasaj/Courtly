@@ -73,3 +73,13 @@ Generate a JWT secret:
 ```bash
 openssl rand -base64 64
 ```
+
+## Smoke test
+
+Starts the app and PostgreSQL with docker compose, runs the real Flyway migrations, and checks login, bookings, the overlap rules and error handling over HTTP. CI runs it after the unit tests.
+
+```bash
+./scripts/smoke-test.sh
+```
+
+Needs Docker, `curl` and `jq`. It creates a throwaway `.env` if you don't have one and removes the containers and volume when it finishes.
