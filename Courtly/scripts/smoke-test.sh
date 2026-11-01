@@ -171,6 +171,25 @@ expect 400 "expired booking can't be paid" -X POST "$BASE/payments/$UNPAID_ID" \
 
 book "the freed slot can be booked again" 201 16 17
 
+# --- login rate limit -------------------------------------------------------------
+BRUTE="brute-$(date +%s)@courtly.test"
+expect 201 "register a second user" -X POST "$BASE/auth/register" \
+    -H 'Content-Type: application/json' \
+    -d "{\"email\":\"$BRUTE\",\"password\":\"Password1!\"}"
+for i in 1 2 3 4 5; do
+    expect 401 "wrong password #$i" -X POST "$BASE/auth/login" \
+        -H 'Content-Type: application/json' \
+        -d "{\"email\":\"$BRUTE\",\"password\":\"wrong-$i\"}"
+done
+expect 429 "6th attempt is blocked, even with the right password" -X POST "$BASE/auth/login" \
+    -H 'Content-Type: application/json' \
+    -d "{\"email\":\"$BRUTE\",\"password\":\"Password1!\"}"
+RETRY_AFTER=$(curl -s -o /dev/null -D - -X POST "$BASE/auth/login" \
+    -H 'Content-Type: application/json' \
+    -d "{\"email\":\"$BRUTE\",\"password\":\"Password1!\"}" | tr -d '\r' | awk -F': ' 'tolower($1)=="retry-after"{print $2}')
+[ -n "$RETRY_AFTER" ] || fail "429 response has no Retry-After header"
+pass "429 carries Retry-After ($RETRY_AFTER s)"
+
 # --- error handling -------------------------------------------------------------
 expect 400 "malformed JSON is 400, not 500" -X POST "$BASE/auth/login" \
     -H 'Content-Type: application/json' -d '{not json'

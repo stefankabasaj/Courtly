@@ -68,6 +68,12 @@ The first migration seeded `admin@courtly.com` with a password that was publishe
 
 A PENDING booking holds its slot. Without a deadline anyone could block a court for days without paying. `BookingExpiryJob` runs every minute and cancels PENDING bookings older than `BOOKING_PAYMENT_TIMEOUT`. It is one UPDATE that also bumps `version`, so a payment racing with it fails on the optimistic lock (409) instead of confirming a booking that was just cancelled. `PaymentService` also rejects payments outside the window, which covers the up-to-a-minute gap between runs.
 
+## Login rate limit in memory
+
+`LoginAttemptService` counts failed logins per email (stops guessing one password) and per IP (stops trying a few passwords on many accounts) in a fixed 15-minute window. Unknown emails count the same as wrong passwords, so the limit doesn't reveal which emails exist. Once blocked, even the right password gets 429 - otherwise the switch from 429 to 200 would confirm the guess.
+
+Counters are in memory, so each instance counts separately and a restart clears them. Good enough for one instance and no extra infrastructure. With several instances the counters would move to Redis. The IP is the socket's remote address, not `X-Forwarded-For`, because a client can put anything in that header; behind a reverse proxy, `server.forward-headers-strategy=native` makes the remote address the real client IP.
+
 ## JSON errors from the security layer
 
 Exceptions thrown inside the Spring Security filter chain never reach `GlobalExceptionHandler`. `ApiSecurityErrorHandler` is wired in as the entry point and access-denied handler so 401 and 403 have the same JSON shape as every other error. Without a custom entry point Spring answers unauthenticated requests with 403.

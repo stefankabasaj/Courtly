@@ -72,6 +72,9 @@ The migrations create four courts. The admin account comes from `.env`:
 | `ADMIN_EMAIL` | - |
 | `ADMIN_PASSWORD` | - (min 12 chars) |
 | `BOOKING_PAYMENT_TIMEOUT` | `15m` |
+| `LOGIN_MAX_FAILURES_PER_EMAIL` | `5` |
+| `LOGIN_MAX_FAILURES_PER_IP` | `20` |
+| `LOGIN_FAILURE_WINDOW` | `15m` |
 
 Generate a JWT secret:
 ```bash

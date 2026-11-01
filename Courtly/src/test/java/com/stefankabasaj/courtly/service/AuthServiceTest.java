@@ -8,7 +8,9 @@ import com.stefankabasaj.courtly.entity.User;
 import com.stefankabasaj.courtly.exception.BusinessException;
 import com.stefankabasaj.courtly.exception.ConflictException;
 import com.stefankabasaj.courtly.repository.UserRepository;
+import com.stefankabasaj.courtly.exception.TooManyRequestsException;
 import com.stefankabasaj.courtly.security.JwtService;
+import com.stefankabasaj.courtly.security.LoginAttemptService;
 import org.junit.jupiter.api.DisplayName;
 import org.springframework.test.context.ActiveProfiles;
 import org.junit.jupiter.api.Test;
@@ -34,7 +36,10 @@ class AuthServiceTest {
     @Mock UserRepository  userRepository;
     @Mock PasswordEncoder passwordEncoder;
     @Mock JwtService      jwtService;
+    @Mock LoginAttemptService loginAttempts;
     @InjectMocks AuthService authService;
+
+    private static final String IP = "203.0.113.7";
 
     @Test
     @DisplayName("register - success, returns USER role")
@@ -79,7 +84,7 @@ class AuthServiceTest {
         when(jwtService.generateToken(any(), any(), any())).thenReturn("jwt.token.here");
 
         AuthResponse resp = authService.login(
-                new LoginRequest("stefan@courtly.com", "Password1!"));
+                new LoginRequest("stefan@courtly.com", "Password1!"), IP);
 
         assertThat(resp.token()).isEqualTo("jwt.token.here");
         assertThat(resp.type()).isEqualTo("Bearer");
@@ -96,7 +101,7 @@ class AuthServiceTest {
         when(passwordEncoder.matches("wrong", "hashed")).thenReturn(false);
 
         assertThatThrownBy(() -> authService.login(
-                new LoginRequest("stefan@courtly.com", "wrong")))
+                new LoginRequest("stefan@courtly.com", "wrong"), IP))
                 .isInstanceOf(BadCredentialsException.class);
     }
 
@@ -106,7 +111,7 @@ class AuthServiceTest {
         when(userRepository.findByEmail(any())).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> authService.login(
-                new LoginRequest("nobody@courtly.com", "Password1!")))
+                new LoginRequest("nobody@courtly.com", "Password1!"), IP))
                 .isInstanceOf(BadCredentialsException.class);
     }
 
@@ -122,7 +127,7 @@ class AuthServiceTest {
         when(jwtService.generateToken(any(), any(), any())).thenReturn("jwt.token.here");
 
         AuthResponse resp = authService.login(
-                new LoginRequest("  Stefan@Courtly.COM ", "Password1!"));
+                new LoginRequest("  Stefan@Courtly.COM ", "Password1!"), IP);
 
         assertThat(resp.email()).isEqualTo("stefan@courtly.com");
     }
@@ -138,7 +143,7 @@ class AuthServiceTest {
         when(passwordEncoder.matches("Password1!", "hashed")).thenReturn(true);
 
         assertThatThrownBy(() -> authService.login(
-                new LoginRequest("stefan@courtly.com", "Password1!")))
+                new LoginRequest("stefan@courtly.com", "Password1!"), IP))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("deactivated");
     }
@@ -154,7 +159,56 @@ class AuthServiceTest {
         when(passwordEncoder.matches("wrong", "hashed")).thenReturn(false);
 
         assertThatThrownBy(() -> authService.login(
-                new LoginRequest("stefan@courtly.com", "wrong")))
+                new LoginRequest("stefan@courtly.com", "wrong"), IP))
                 .isInstanceOf(BadCredentialsException.class);
+    }
+
+    @Test
+    @DisplayName("login - blocked email/IP gets 429 before any password check")
+    void login_blocked_throws() {
+        doThrow(new TooManyRequestsException("Too many failed login attempts", 600))
+                .when(loginAttempts).checkAllowed("stefan@courtly.com", IP);
+
+        assertThatThrownBy(() -> authService.login(
+                new LoginRequest("stefan@courtly.com", "Password1!"), IP))
+                .isInstanceOf(TooManyRequestsException.class);
+
+        verifyNoInteractions(userRepository, passwordEncoder);
+    }
+
+    @Test
+    @DisplayName("login - wrong password and unknown email are both counted as failures")
+    void login_failuresAreRecorded() {
+        User user = User.builder()
+                .id(UUID.randomUUID()).email("stefan@courtly.com")
+                .passwordHash("hashed").role(User.Role.USER).active(true).build();
+        when(userRepository.findByEmail("stefan@courtly.com")).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("wrong", "hashed")).thenReturn(false);
+        when(userRepository.findByEmail("nobody@courtly.com")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.login(new LoginRequest("stefan@courtly.com", "wrong"), IP))
+                .isInstanceOf(BadCredentialsException.class);
+        assertThatThrownBy(() -> authService.login(new LoginRequest("nobody@courtly.com", "wrong"), IP))
+                .isInstanceOf(BadCredentialsException.class);
+
+        verify(loginAttempts).recordFailure("stefan@courtly.com", IP);
+        verify(loginAttempts).recordFailure("nobody@courtly.com", IP);
+        verify(loginAttempts, never()).recordSuccess(any());
+    }
+
+    @Test
+    @DisplayName("login - success clears the email's failure counter")
+    void login_successIsRecorded() {
+        User user = User.builder()
+                .id(UUID.randomUUID()).email("stefan@courtly.com")
+                .passwordHash("hashed").role(User.Role.USER).active(true).build();
+        when(userRepository.findByEmail("stefan@courtly.com")).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("Password1!", "hashed")).thenReturn(true);
+        when(jwtService.generateToken(any(), any(), any())).thenReturn("jwt.token.here");
+
+        authService.login(new LoginRequest("stefan@courtly.com", "Password1!"), IP);
+
+        verify(loginAttempts).recordSuccess("stefan@courtly.com");
+        verify(loginAttempts, never()).recordFailure(any(), any());
     }
 }

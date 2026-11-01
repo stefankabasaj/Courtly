@@ -7,6 +7,7 @@ import com.stefankabasaj.courtly.dto.request.RegisterRequest;
 import com.stefankabasaj.courtly.dto.response.AuthResponse;
 import com.stefankabasaj.courtly.dto.response.UserResponse;
 import com.stefankabasaj.courtly.exception.ConflictException;
+import com.stefankabasaj.courtly.exception.TooManyRequestsException;
 import com.stefankabasaj.courtly.security.JwtService;
 import com.stefankabasaj.courtly.service.AuthService;
 import org.junit.jupiter.api.DisplayName;
@@ -87,7 +88,7 @@ class AuthControllerTest {
     @DisplayName("POST /auth/login - 200 with token")
     void login_returns200() throws Exception {
         LoginRequest req = new LoginRequest("stefan@courtly.com", "Password1!");
-        when(authService.login(any()))
+        when(authService.login(any(), any()))
                 .thenReturn(AuthResponse.of("jwt.token.here", "stefan@courtly.com", "USER"));
 
         mockMvc.perform(post("/api/v1/auth/login")
@@ -129,5 +130,20 @@ class AuthControllerTest {
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.fieldErrors.password").exists());
+    }
+
+    @Test
+    @DisplayName("POST /auth/login - 429 with Retry-After when blocked")
+    void login_blocked_returns429() throws Exception {
+        when(authService.login(any(), any()))
+                .thenThrow(new TooManyRequestsException("Too many failed login attempts", 600));
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new LoginRequest("stefan@courtly.com", "Password1!"))))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", "600"))
+                .andExpect(jsonPath("$.status").value(429));
     }
 }

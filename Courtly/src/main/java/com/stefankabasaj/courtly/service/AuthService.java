@@ -9,6 +9,7 @@ import com.stefankabasaj.courtly.exception.BusinessException;
 import com.stefankabasaj.courtly.exception.ConflictException;
 import com.stefankabasaj.courtly.repository.UserRepository;
 import com.stefankabasaj.courtly.security.JwtService;
+import com.stefankabasaj.courtly.security.LoginAttemptService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -26,6 +27,7 @@ public class AuthService {
     private final UserRepository  userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService      jwtService;
+    private final LoginAttemptService loginAttempts;
 
     @Transactional
     public UserResponse register(RegisterRequest request) {
@@ -48,16 +50,21 @@ public class AuthService {
     }
 
     @Transactional(readOnly = true)
-    public AuthResponse login(LoginRequest request) {
+    public AuthResponse login(LoginRequest request, String clientIp) {
         String email = normalize(request.email());
-        log.debug("Login attempt email={}", email);
+        log.debug("Login attempt email={} ip={}", email, clientIp);
 
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new BadCredentialsException("Invalid email or password"));
+        // before touching the DB or BCrypt, so a blocked attacker costs us nothing
+        loginAttempts.checkAllowed(email, clientIp);
 
-        if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+        // unknown email and wrong password count the same, so the limit doesn't
+        // reveal which emails have accounts
+        User user = userRepository.findByEmail(email).orElse(null);
+        if (user == null || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+            loginAttempts.recordFailure(email, clientIp);
             throw new BadCredentialsException("Invalid email or password");
         }
+        loginAttempts.recordSuccess(email);
 
         // after the password check, so only the account owner learns it was deactivated
         if (!user.isActive()) {

@@ -100,3 +100,5 @@ A booking has to be paid within `BOOKING_PAYMENT_TIMEOUT` (default 15 minutes). 
 Every error, including 401 and 403 from the security layer, has the same JSON shape:
 `status`, `error`, `message`, `path`, `timestamp`, and `fieldErrors` for validation failures (422).
 Missing or invalid token: 401. Valid token without the required role: 403.
+
+After 5 failed logins for one email, or 20 from one IP, within 15 minutes, login answers 429 with a `Retry-After` header until the window ends. That includes the right password, so the limit can't be used to confirm a guess.

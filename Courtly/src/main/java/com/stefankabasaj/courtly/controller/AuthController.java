@@ -5,6 +5,7 @@ import com.stefankabasaj.courtly.dto.request.RegisterRequest;
 import com.stefankabasaj.courtly.dto.response.AuthResponse;
 import com.stefankabasaj.courtly.dto.response.UserResponse;
 import com.stefankabasaj.courtly.service.AuthService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -25,7 +26,11 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
-        return ResponseEntity.ok(authService.login(request));
+    // remote address, not X-Forwarded-For: that header is set by the client and
+    // could be used to dodge the per-IP login limit. Behind a reverse proxy, set
+    // server.forward-headers-strategy=native so this becomes the real client IP
+    public ResponseEntity<AuthResponse> login(
+            @Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(authService.login(request, httpRequest.getRemoteAddr()));
     }
 }
