@@ -74,6 +74,12 @@ A PENDING booking holds its slot. Without a deadline anyone could block a court 
 
 Counters are in memory, so each instance counts separately and a restart clears them. Good enough for one instance and no extra infrastructure. With several instances the counters would move to Redis. The IP is the socket's remote address, not `X-Forwarded-For`, because a client can put anything in that header; behind a reverse proxy, `server.forward-headers-strategy=native` makes the remote address the real client IP.
 
+## Opening hours and availability
+
+`GET /courts/{id}/availability?date=` returns one slot per opening hour, marked free or taken, so clients don't have to guess and retry. That only makes sense with opening hours, so bookings are now also limited to them (`COURTS_OPENING_HOUR` / `COURTS_CLOSING_HOUR`, default 07:00-23:00). One set of hours for all courts - per-court hours can come later if a venue needs them.
+
+The grid is built from one query for the whole day. A slot is taken if any PENDING or CONFIRMED booking overlaps it, using the same half-open rule as the database constraint, and past slots are never free.
+
 ## JSON errors from the security layer
 
 Exceptions thrown inside the Spring Security filter chain never reach `GlobalExceptionHandler`. `ApiSecurityErrorHandler` is wired in as the entry point and access-denied handler so 401 and 403 have the same JSON shape as every other error. Without a custom entry point Spring answers unauthenticated requests with 403.

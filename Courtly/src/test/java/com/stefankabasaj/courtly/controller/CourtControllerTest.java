@@ -3,7 +3,9 @@ package com.stefankabasaj.courtly.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stefankabasaj.courtly.config.SecurityConfig;
 import com.stefankabasaj.courtly.dto.request.CourtRequest;
+import com.stefankabasaj.courtly.dto.response.CourtAvailabilityResponse;
 import com.stefankabasaj.courtly.dto.response.CourtResponse;
+import com.stefankabasaj.courtly.service.CourtAvailabilityService;
 import com.stefankabasaj.courtly.entity.Court;
 import com.stefankabasaj.courtly.exception.ConflictException;
 import com.stefankabasaj.courtly.exception.ResourceNotFoundException;
@@ -21,6 +23,7 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -41,6 +44,7 @@ class CourtControllerTest {
     @Autowired ObjectMapper objectMapper;
 
     @MockitoBean CourtService courtService;
+    @MockitoBean CourtAvailabilityService availabilityService;
     @MockitoBean JwtService   jwtService;
 
     private final CourtResponse sample = new CourtResponse(
@@ -131,5 +135,38 @@ class CourtControllerTest {
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.fieldErrors.name").exists());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /courts/{id}/availability - 200 with hourly slots")
+    void availability_returns200() throws Exception {
+        UUID id = sample.id();
+        LocalDate date = LocalDate.of(2030, 6, 1);
+        var slot = new CourtAvailabilityResponse.Slot(date.atTime(7, 0), date.atTime(8, 0), true);
+        when(availabilityService.getAvailability(id, date))
+                .thenReturn(new CourtAvailabilityResponse(id, "Court A", date, List.of(slot)));
+
+        mockMvc.perform(get("/api/v1/courts/{id}/availability", id).param("date", "2030-06-01"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.date").value("2030-06-01"))
+                .andExpect(jsonPath("$.slots[0].startTime").value("2030-06-01T07:00:00"))
+                .andExpect(jsonPath("$.slots[0].available").value(true));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /courts/{id}/availability - 400 without a date")
+    void availability_missingDate_returns400() throws Exception {
+        mockMvc.perform(get("/api/v1/courts/{id}/availability", sample.id()))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /courts/{id}/availability - 400 for a malformed date")
+    void availability_badDate_returns400() throws Exception {
+        mockMvc.perform(get("/api/v1/courts/{id}/availability", sample.id()).param("date", "tomorrow"))
+                .andExpect(status().isBadRequest());
     }
 }

@@ -63,6 +63,7 @@ All protected endpoints need `Authorization: Bearer <token>`.
 |---|---|---|
 | GET | `/api/v1/courts` | any authenticated user |
 | GET | `/api/v1/courts/{id}` | any authenticated user |
+| GET | `/api/v1/courts/{id}/availability?date=YYYY-MM-DD` | any authenticated user (hourly slots, free or taken) |
 | POST | `/api/v1/courts` | admin |
 | PUT | `/api/v1/courts/{id}` | admin |
 | DELETE | `/api/v1/courts/{id}` | admin (soft delete) |
@@ -73,7 +74,7 @@ All protected endpoints need `Authorization: Bearer <token>`.
 
 | Method | Path | Who | Notes |
 |---|---|---|---|
-| POST | `/api/v1/bookings` | user | 1-4h, on the hour |
+| POST | `/api/v1/bookings` | user | 1-4h, on the hour, within opening hours (default 07:00-23:00) |
 | GET | `/api/v1/bookings/my` | user | own bookings |
 | GET | `/api/v1/bookings/{id}` | user/admin | users see own only |
 | PATCH | `/api/v1/bookings/{id}/cancel` | user | 2h notice, PENDING only |

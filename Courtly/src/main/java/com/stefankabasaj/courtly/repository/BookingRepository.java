@@ -59,6 +59,21 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
             @Param("endTime")   LocalDateTime endTime
     );
 
+    // bookings that still hold part of [from, to) - used to build the availability grid
+    @Query("""
+        SELECT b FROM Booking b
+        WHERE b.court.id  = :courtId
+          AND b.status   <> :cancelled
+          AND b.startTime < :to
+          AND b.endTime   > :from
+        """)
+    List<Booking> findActiveOverlapping(
+            @Param("courtId")   UUID courtId,
+            @Param("from")      LocalDateTime from,
+            @Param("to")        LocalDateTime to,
+            @Param("cancelled") Booking.BookingStatus cancelled
+    );
+
     // bulk update skips Hibernate's @Version and @UpdateTimestamp handling, so both are set here.
     // statuses are parameters so the query doesn't need the enum's fully qualified name
     @Modifying

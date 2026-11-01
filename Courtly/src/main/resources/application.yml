@@ -50,6 +50,10 @@ app:
       max-failures-per-email: ${LOGIN_MAX_FAILURES_PER_EMAIL:5}
       max-failures-per-ip: ${LOGIN_MAX_FAILURES_PER_IP:20}
       window: ${LOGIN_FAILURE_WINDOW:15m}
+  # opening hours - bookings must fit inside them (closing-hour 24 = until midnight)
+  courts:
+    opening-hour: ${COURTS_OPENING_HOUR:7}
+    closing-hour: ${COURTS_CLOSING_HOUR:23}
   # admin account created at startup - see AdminBootstrap
   admin:
     email: ${ADMIN_EMAIL:}

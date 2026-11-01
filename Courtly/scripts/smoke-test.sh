@@ -125,6 +125,16 @@ BOOKING_ID=$(jq -r .id <<<"$RESPONSE")
 
 book "overlapping 11-13 is rejected" 409 11 13
 book "back-to-back 12-14 is allowed" 201 12 14
+book "outside opening hours (05-06) is rejected" 400 05 06
+
+# --- availability ------------------------------------------------------------------
+expect 200 "availability for the day" "$BASE/courts/$COURT_ID/availability?date=$DAY" \
+    -H "Authorization: Bearer $USER_TOKEN"
+slot() { jq -r --arg t "${DAY}T$1:00:00" '.slots[] | select(.startTime == $t) | .available' <<<"$RESPONSE"; }
+[ "$(jq '.slots | length' <<<"$RESPONSE")" -eq 16 ] || fail "expected 16 hourly slots (07-23)"
+for h in 10 11 12 13; do [ "$(slot $h)" = "false" ] || fail "slot $h:00 should be taken"; done
+for h in 09 14; do [ "$(slot $h)" = "true" ] || fail "slot $h:00 should be free"; done
+pass "booked hours (10-14) are taken, 09 and 14 are free"
 
 # --- database constraint from V2 ------------------------------------------------
 # bypass the app and insert an overlapping row directly: the exclusion

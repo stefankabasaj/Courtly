@@ -1,5 +1,6 @@
 package com.stefankabasaj.courtly.service;
 
+import com.stefankabasaj.courtly.config.OpeningHoursProperties;
 import com.stefankabasaj.courtly.dto.request.AdminCancelRequest;
 import com.stefankabasaj.courtly.dto.request.BookingRequest;
 import com.stefankabasaj.courtly.dto.request.CancelBookingRequest;
@@ -46,7 +47,7 @@ class BookingServiceTest {
     @Mock  BookingRepository bookingRepository;
     @Mock  CourtRepository   courtRepository;
     @Mock  UserRepository    userRepository;
-    @Spy   BookingValidator  bookingValidator = new BookingValidator();
+    @Spy   BookingValidator  bookingValidator = new BookingValidator(new OpeningHoursProperties(7, 23));
     @InjectMocks BookingService bookingService;
 
     private User  user;
