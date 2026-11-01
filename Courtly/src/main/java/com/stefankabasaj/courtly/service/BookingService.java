@@ -50,6 +50,11 @@ public class BookingService {
         Court court = courtRepository.findById(request.courtId())
                 .orElseThrow(() -> new ResourceNotFoundException("Court", request.courtId()));
 
+        // tokens are checked without a DB hit, so a deactivated user's token keeps
+        // working until it expires. at least don't let it create new bookings
+        if (!user.isActive()) {
+            throw new BusinessException("This account has been deactivated. Please contact support.");
+        }
         if (!court.isActive()) {
             throw new BusinessException("Court '" + court.getName() + "' is not currently available for booking.");
         }

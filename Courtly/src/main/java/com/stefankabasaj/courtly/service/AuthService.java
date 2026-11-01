@@ -10,6 +10,7 @@ import com.stefankabasaj.courtly.exception.ConflictException;
 import com.stefankabasaj.courtly.repository.UserRepository;
 import com.stefankabasaj.courtly.security.JwtService;
 import com.stefankabasaj.courtly.security.LoginAttemptService;
+import com.stefankabasaj.courtly.validation.MaxBytesValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -24,9 +25,12 @@ import java.util.Locale;
 @RequiredArgsConstructor
 public class AuthService {
 
-    private final UserRepository  userRepository;
-    private final PasswordEncoder passwordEncoder;
-    private final JwtService      jwtService;
+    // BCrypt can't hash more than this, and newer Spring Security throws instead of truncating
+    private static final int BCRYPT_MAX_BYTES = 72;
+
+    private final UserRepository      userRepository;
+    private final PasswordEncoder     passwordEncoder;
+    private final JwtService          jwtService;
     private final LoginAttemptService loginAttempts;
 
     @Transactional
@@ -60,7 +64,7 @@ public class AuthService {
         // unknown email and wrong password count the same, so the limit doesn't
         // reveal which emails have accounts
         User user = userRepository.findByEmail(email).orElse(null);
-        if (user == null || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+        if (user == null || !passwordMatches(request.password(), user)) {
             loginAttempts.recordFailure(email, clientIp);
             throw new BadCredentialsException("Invalid email or password");
         }
@@ -74,6 +78,12 @@ public class AuthService {
         String token = jwtService.generateToken(user.getId(), user.getEmail(), user.getRole().name());
         log.info("Login successful userId={}", user.getId());
         return AuthResponse.of(token, user.getEmail(), user.getRole().name());
+    }
+
+    // a password BCrypt can't even hash can't be anyone's password - just a failed login, not a 500
+    private boolean passwordMatches(String raw, User user) {
+        return MaxBytesValidator.utf8Length(raw) <= BCRYPT_MAX_BYTES
+                && passwordEncoder.matches(raw, user.getPasswordHash());
     }
 
     // normalize so casing / stray spaces don't create duplicate accounts

@@ -103,6 +103,19 @@ class BookingServiceTest {
             verify(bookingRepository).save(any());
         }
 
+        @Test @DisplayName("deactivated user can't book")
+        void deactivatedUser() {
+            user.setActive(false);
+            when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
+            when(courtRepository.findById(court.getId())).thenReturn(Optional.of(court));
+
+            assertThatThrownBy(() -> bookingService.createBooking(
+                    user.getId(), new BookingRequest(court.getId(), start, end)))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("deactivated");
+            verify(bookingRepository, never()).save(any());
+        }
+
         @Test @DisplayName("court not found → 404")
         void courtNotFound() {
             when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));

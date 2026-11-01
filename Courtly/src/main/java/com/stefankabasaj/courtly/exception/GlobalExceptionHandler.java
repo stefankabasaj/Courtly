@@ -3,11 +3,13 @@ package com.stefankabasaj.courtly.exception;
 import com.stefankabasaj.courtly.dto.response.ErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
+import jakarta.validation.Path;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
@@ -19,9 +21,11 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -92,13 +96,28 @@ public class GlobalExceptionHandler {
                         "Request validation failed", req.getRequestURI(), fieldErrors));
     }
 
-    // @Min/@Max on query params throw a different exception than body validation
+    // @Min/@Max on query params (e.g. ?size=500) - Spring validates those itself
+    // and throws this instead of MethodArgumentNotValidException
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    public ResponseEntity<ErrorResponse> handleParameterValidation(
+            HandlerMethodValidationException ex, HttpServletRequest req) {
+        Map<String, String> fieldErrors = new LinkedHashMap<>();
+        ex.getAllValidationResults().forEach(result -> result.getResolvableErrors().forEach(error ->
+                fieldErrors.putIfAbsent(
+                        result.getMethodParameter().getParameterName(),
+                        error.getDefaultMessage() != null ? error.getDefaultMessage() : "Invalid value")));
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .body(ErrorResponse.withFields(422, "Validation Failed",
+                        "Parameter validation failed", req.getRequestURI(), fieldErrors));
+    }
+
+    // same thing when validation runs on a service method instead of a controller
     @ExceptionHandler(ConstraintViolationException.class)
     public ResponseEntity<ErrorResponse> handleConstraintViolation(
             ConstraintViolationException ex, HttpServletRequest req) {
         Map<String, String> fieldErrors = ex.getConstraintViolations().stream()
                 .collect(Collectors.toMap(
-                        cv -> cv.getPropertyPath().toString(),
+                        cv -> lastNode(cv.getPropertyPath()),
                         cv -> cv.getMessage(),
                         (first, second) -> first
                 ));
@@ -170,13 +189,31 @@ public class GlobalExceptionHandler {
         return error(HttpStatus.NOT_FOUND, "Not Found", "Resource not found.", req);
     }
 
-    // catch-all. full trace to the logs, bland message to the client
+    // catch-all. full trace to the logs, bland message to the client.
+    // Spring's own web exceptions already know their status (400, 405, 406, ...) -
+    // use it instead of turning a client mistake into a 500
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpected(
             Exception ex, HttpServletRequest req) {
+        if (ex instanceof org.springframework.web.ErrorResponse springError
+                && springError.getStatusCode().is4xxClientError()) {
+            HttpStatusCode code = springError.getStatusCode();
+            HttpStatus status = HttpStatus.valueOf(code.value());
+            log.warn("Client error at {}: {}", req.getRequestURI(), ex.getMessage());
+            return error(status, status.getReasonPhrase(), status.getReasonPhrase() + ".", req);
+        }
         log.error("Unexpected error at {}: {}", req.getRequestURI(), ex.getMessage(), ex);
         return error(HttpStatus.INTERNAL_SERVER_ERROR, "Internal Server Error",
                 "Something went wrong. Please try again later.", req);
+    }
+
+    // "getAll.size" -> "size", so the key matches the parameter the client sent
+    private static String lastNode(Path path) {
+        String name = null;
+        for (Path.Node node : path) {
+            name = node.getName();
+        }
+        return name != null ? name : path.toString();
     }
 
     private ResponseEntity<ErrorResponse> error(

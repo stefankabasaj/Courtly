@@ -9,7 +9,7 @@
 
 ```bash
 cp .env.example .env
-docker-compose up --build
+docker compose up --build
 ```
 
 Postgres starts first, the app waits for it to be ready, then starts. About 30 seconds total on first run.
@@ -19,10 +19,13 @@ Postgres starts first, the app waits for it to be ready, then starts. About 30 s
 If I want to run the app from IntelliJ or `mvnw spring-boot:run`:
 
 ```bash
-docker-compose up postgres -d
 cp .env.example .env
+docker compose up postgres -d
+set -a; source .env; set +a   # Spring doesn't read .env by itself
 ./mvnw spring-boot:run
 ```
+
+In IntelliJ, put the same variables in the run configuration instead (or use the EnvFile plugin).
 
 ## Running tests
 
@@ -41,7 +44,7 @@ Host:     localhost
 Port:     5432
 Database: courtly
 Schema:   courtly
-User:     courtly_user (or whatever you put in .env)
+User:     POSTGRES_USER from your .env
 Password: from your .env
 ```
 
@@ -49,14 +52,16 @@ I use DataGrip but any client works.
 
 ## Seeded data
 
-The migrations create four courts. The admin account comes from `.env`:
+The migrations create four courts:
 
-- `ADMIN_EMAIL` / `ADMIN_PASSWORD` - created on startup if it doesn't exist. An existing account's password is never overwritten.
-- Older versions seeded `admin@courtly.com` / `Admin123!`. That password is public, so the V3 migration locks the account; setting `ADMIN_EMAIL=admin@courtly.com` unlocks it with your `ADMIN_PASSWORD`.
 - Court A - Clay (€25/h)
 - Court B - Grass (€30/h)
 - Court C - Hard (€20/h)
 - Court D - Artificial (€15/h)
+
+The admin account comes from `.env`. `ADMIN_EMAIL` / `ADMIN_PASSWORD` is created on startup if it doesn't exist, and an existing account's password is never overwritten.
+
+Older versions seeded `admin@courtly.com` / `Admin123!`. That password is public, so the V3 migration locks the account. Setting `ADMIN_EMAIL=admin@courtly.com` unlocks it with your `ADMIN_PASSWORD`.
 
 ## Environment variables
 
@@ -70,13 +75,16 @@ The migrations create four courts. The admin account comes from `.env`:
 | `JWT_SECRET` | - (min 32 chars) |
 | `JWT_EXPIRATION_MS` | `86400000` (24h) |
 | `ADMIN_EMAIL` | - |
-| `ADMIN_PASSWORD` | - (min 12 chars) |
+| `ADMIN_PASSWORD` | - (12 chars to 72 bytes) |
+| `APP_TIMEZONE` | `Europe/Belgrade` |
 | `BOOKING_PAYMENT_TIMEOUT` | `15m` |
+| `BOOKING_EXPIRY_CHECK_INTERVAL_MS` | `60000` |
 | `COURTS_OPENING_HOUR` | `7` |
 | `COURTS_CLOSING_HOUR` | `23` (24 = until midnight) |
 | `LOGIN_MAX_FAILURES_PER_EMAIL` | `5` |
 | `LOGIN_MAX_FAILURES_PER_IP` | `20` |
 | `LOGIN_FAILURE_WINDOW` | `15m` |
+| `SERVER_PORT` | `8080` |
 
 Generate a JWT secret:
 ```bash

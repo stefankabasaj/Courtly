@@ -15,7 +15,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -24,7 +23,6 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/bookings")
 @RequiredArgsConstructor
-@Validated
 public class BookingController {
 
     private final BookingService bookingService;
@@ -60,7 +58,8 @@ public class BookingController {
                 bookingService.cancelBooking(id, principal.userId(), request));
     }
 
-    @DeleteMapping("/{id}/admin-cancel")
+    // PATCH like the user cancel - it changes the booking's status, nothing gets deleted
+    @PatchMapping("/{id}/admin-cancel")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<BookingResponse> adminCancel(
             @PathVariable UUID id,

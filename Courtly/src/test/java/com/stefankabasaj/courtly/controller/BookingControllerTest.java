@@ -2,6 +2,7 @@ package com.stefankabasaj.courtly.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stefankabasaj.courtly.config.SecurityConfig;
+import com.stefankabasaj.courtly.dto.request.AdminCancelRequest;
 import com.stefankabasaj.courtly.dto.request.BookingRequest;
 import com.stefankabasaj.courtly.dto.response.BookingResponse;
 import com.stefankabasaj.courtly.dto.response.PageResponse;
@@ -168,5 +169,45 @@ class BookingControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("GET /bookings - 422 when size is over 100, not a 500")
+    void getAllBookings_sizeTooBig_returns422() throws Exception {
+        mockMvc.perform(get("/api/v1/bookings?page=0&size=500")
+                        .with(authentication(userAuth("ADMIN"))))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.fieldErrors.size").exists());
+    }
+
+    @Test
+    @DisplayName("PATCH /bookings/{id}/admin-cancel - 200 for ADMIN")
+    void adminCancel_returns200() throws Exception {
+        when(bookingService.adminCancelBooking(any(), any())).thenReturn(sample);
+
+        mockMvc.perform(patch("/api/v1/bookings/{id}/admin-cancel", sample.id())
+                        .with(authentication(userAuth("ADMIN")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new AdminCancelRequest("Court maintenance"))))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("PATCH /bookings/{id}/admin-cancel - 403 for USER")
+    void adminCancel_user_returns403() throws Exception {
+        mockMvc.perform(patch("/api/v1/bookings/{id}/admin-cancel", sample.id())
+                        .with(authentication(userAuth("USER")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new AdminCancelRequest("nope"))))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("wrong HTTP method - 405 JSON, not 500")
+    void wrongMethod_returns405() throws Exception {
+        mockMvc.perform(put("/api/v1/bookings/my")
+                        .with(authentication(userAuth("USER"))))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.status").value(405));
     }
 }

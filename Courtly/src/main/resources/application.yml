@@ -77,7 +77,9 @@ management:
         include: health,info
   endpoint:
     health:
+      # DB/disk details only for admins - every logged-in user counts as "authorized" otherwise
       show-details: when-authorized
+      roles: ADMIN
       probes:
         enabled: true
 

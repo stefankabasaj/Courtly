@@ -1,8 +1,7 @@
 name: CI
 
-# The Maven project lives in the Courtly/ subfolder. GitHub only runs workflows
-# from the repository root's .github/workflows, so this file has to live here
-# (it used to sit in Courtly/.github and never ran).
+# The Maven project lives in Courtly/, but GitHub only picks up workflows from
+# the repo root's .github/workflows - hence working-directory below.
 
 on:
   push:

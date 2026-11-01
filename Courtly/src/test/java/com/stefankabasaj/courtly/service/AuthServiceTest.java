@@ -211,4 +211,20 @@ class AuthServiceTest {
         verify(loginAttempts).recordSuccess("stefan@courtly.com");
         verify(loginAttempts, never()).recordFailure(any(), any());
     }
+
+    @Test
+    @DisplayName("login - password over BCrypt's 72 bytes is a failed login, not an exception")
+    void login_passwordTooLongForBcrypt() {
+        User user = User.builder()
+                .id(UUID.randomUUID()).email("stefan@courtly.com")
+                .passwordHash("hashed").role(User.Role.USER).active(true).build();
+        when(userRepository.findByEmail("stefan@courtly.com")).thenReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> authService.login(
+                new LoginRequest("stefan@courtly.com", "ш".repeat(40)), IP))
+                .isInstanceOf(BadCredentialsException.class);
+
+        verify(passwordEncoder, never()).matches(any(), any());
+        verify(loginAttempts).recordFailure("stefan@courtly.com", IP);
+    }
 }

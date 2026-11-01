@@ -14,7 +14,7 @@ Users register, log in, browse courts, book a slot, and pay. Admins manage court
 git clone https://github.com/stefankabasaj/Courtly.git
 cd Courtly/Courtly
 cp .env.example .env
-docker-compose up --build
+docker compose up --build
 ```
 
 
@@ -34,10 +34,10 @@ For more setup options see [docs/local-setup.md](docs/local-setup.md).
 
 
 - Java 21, Spring Boot 3.5
-- Spring Security with JWT (HMAC-SHA256)
+- Spring Security with JWT (HMAC, signed with `JWT_SECRET`)
 - Spring Data JPA + Hibernate
 - PostgreSQL 16, Flyway migrations
-- Docker, docker-compose
+- Docker, Docker Compose
 - JUnit 5, Mockito
 
 
@@ -45,6 +45,8 @@ For more setup options see [docs/local-setup.md](docs/local-setup.md).
 
 
 All protected endpoints need `Authorization: Bearer <token>`.
+
+Times are the courts' local time (`APP_TIMEZONE`, default `Europe/Belgrade`) and are sent without an offset, e.g. `2026-11-05T10:00:00`.
 
 
 ### Auth
@@ -78,7 +80,8 @@ All protected endpoints need `Authorization: Bearer <token>`.
 | GET | `/api/v1/bookings/my` | user | own bookings |
 | GET | `/api/v1/bookings/{id}` | user/admin | users see own only |
 | PATCH | `/api/v1/bookings/{id}/cancel` | user | 2h notice, PENDING only |
-| DELETE | `/api/v1/bookings/{id}/admin-cancel` | admin | reason required |
+| PATCH | `/api/v1/bookings/{id}/admin-cancel` | admin | reason required |
+| GET | `/api/v1/bookings?page=0&size=20` | admin | all bookings, newest first, max 100 per page |
 
 
 ### Payments

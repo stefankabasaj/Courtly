@@ -83,6 +83,19 @@ for i in $(seq 1 60); do
 done
 pass "health endpoint"
 
+# --- startup ----------------------------------------------------------------------
+# capture first - grep -q exiting early would trip pipefail
+APP_LOGS=$("${COMPOSE[@]}" logs app)
+grep -q "timezone Europe/Belgrade" <<<"$APP_LOGS" \
+    || fail "app is not running in Europe/Belgrade (booking times would be off by 1-2h)"
+pass "app runs in the courts' time zone"
+
+[ "$(psql_smoke -tAc "SELECT count(*) FROM courtly.flyway_schema_history WHERE success" )" -ge 4 ] \
+    || fail "not all migrations ran"
+[ "$(psql_smoke -tAc "SELECT count(*) FROM pg_indexes WHERE schemaname = 'courtly' AND indexname = 'idx_users_email'")" = "0" ] \
+    || fail "V4 did not drop idx_users_email"
+pass "all migrations applied, V4 dropped the redundant index"
+
 # --- security -----------------------------------------------------------------
 expect 401 "no token is 401 with a JSON body" "$BASE/courts"
 [ "$(jq -r .status <<<"$RESPONSE")" = "401" ] || fail "401 body is not the standard error JSON"
@@ -125,6 +138,7 @@ BOOKING_ID=$(jq -r .id <<<"$RESPONSE")
 
 book "overlapping 11-13 is rejected" 409 11 13
 book "back-to-back 12-14 is allowed" 201 12 14
+BACK_TO_BACK_ID=$(jq -r .id <<<"$RESPONSE")
 book "outside opening hours (05-06) is rejected" 400 05 06
 
 # --- availability ------------------------------------------------------------------
@@ -157,6 +171,15 @@ expect 200 "user cancels own pending booking" -X PATCH "$BASE/bookings/$BOOKING_
 [ "$(jq -r .status <<<"$RESPONSE")" = "CANCELLED" ] || fail "booking not cancelled"
 
 book "cancelled slot can be booked again" 201 10 12
+
+expect 200 "admin cancels a booking with PATCH" -X PATCH "$BASE/bookings/$BACK_TO_BACK_ID/admin-cancel" \
+    -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
+    -d '{"reason":"court maintenance"}'
+[ "$(jq -r .cancellationReason <<<"$RESPONSE")" = "court maintenance" ] || fail "admin reason not stored"
+
+expect 403 "user can't admin-cancel" -X PATCH "$BASE/bookings/$BACK_TO_BACK_ID/admin-cancel" \
+    -H "Authorization: Bearer $USER_TOKEN" -H 'Content-Type: application/json' \
+    -d '{"reason":"nope"}'
 
 # --- unpaid bookings expire ------------------------------------------------------
 book "book 16-17 and leave it unpaid" 201 16 17
@@ -203,6 +226,47 @@ pass "429 carries Retry-After ($RETRY_AFTER s)"
 # --- error handling -------------------------------------------------------------
 expect 400 "malformed JSON is 400, not 500" -X POST "$BASE/auth/login" \
     -H 'Content-Type: application/json' -d '{not json'
+
+# 40 Cyrillic letters: 40 characters but 80 bytes, over BCrypt's 72
+LONG_PASSWORD=$(printf 'ш%.0s' $(seq 1 40))
+expect 422 "password over 72 bytes is 422, not 500" -X POST "$BASE/auth/register" \
+    -H 'Content-Type: application/json' \
+    -d "{\"email\":\"cyrillic-$(date +%s)@courtly.test\",\"password\":\"$LONG_PASSWORD\"}"
+
+expect 422 "page size over 100 is 422, not 500" "$BASE/bookings?size=500" \
+    -H "Authorization: Bearer $ADMIN_TOKEN"
+
+expect 405 "wrong HTTP method is 405, not 500" -X PUT "$BASE/bookings/my" \
+    -H "Authorization: Bearer $USER_TOKEN"
+
+# --- actuator ---------------------------------------------------------------------
+expect 200 "actuator health is public" "http://localhost:8080/actuator/health"
+[ "$(jq 'has("components")' <<<"$RESPONSE")" = "false" ] || fail "health details shown without a token"
+expect 200 "actuator health for a regular user" "http://localhost:8080/actuator/health" \
+    -H "Authorization: Bearer $USER_TOKEN"
+[ "$(jq 'has("components")' <<<"$RESPONSE")" = "false" ] || fail "health details shown to a regular user"
+expect 200 "actuator health for admin" "http://localhost:8080/actuator/health" \
+    -H "Authorization: Bearer $ADMIN_TOKEN"
+[ "$(jq -r '.components.db.status' <<<"$RESPONSE")" = "UP" ] || fail "admin should see the db status"
+pass "health details only for admins"
+
+# --- container --------------------------------------------------------------------
+# the Docker healthcheck (busybox wget inside the image) has to work too
+APP_CONTAINER=$("${COMPOSE[@]}" ps -q app)
+for i in $(seq 1 30); do
+    HEALTH=$(docker inspect --format '{{.State.Health.Status}}' "$APP_CONTAINER")
+    [ "$HEALTH" = "healthy" ] && break
+    [ "$i" -eq 30 ] && fail "container health is '$HEALTH' after 90s"
+    sleep 3
+done
+pass "Docker healthcheck reports healthy"
+
+# exec in the ENTRYPOINT: java is PID 1 and shuts down on SIGTERM instead of being killed
+STOP_START=$(date +%s)
+"${COMPOSE[@]}" stop -t 30 app >/dev/null 2>&1
+STOP_SECONDS=$(( $(date +%s) - STOP_START ))
+[ "$STOP_SECONDS" -lt 15 ] || fail "app took ${STOP_SECONDS}s to stop - SIGTERM is not reaching java"
+pass "app stops cleanly on SIGTERM (${STOP_SECONDS}s)"
 
 echo
 echo "Smoke test passed."

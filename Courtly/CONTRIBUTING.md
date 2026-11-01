@@ -5,10 +5,11 @@ If you're forking this or working on it with me.
 ## Setup
 
 ```bash
-git clone https://github.com/stefankabasaj/courtly.git
-cd courtly
+git clone https://github.com/stefankabasaj/Courtly.git
+cd Courtly/Courtly
 cp .env.example .env
-docker-compose up postgres -d
+docker compose up postgres -d
+set -a; source .env; set +a
 ./mvnw spring-boot:run
 ```
 
@@ -37,7 +38,7 @@ docs:     update API table
 
 ```bash
 ./mvnw test
-docker build -t tennis:test .
+./scripts/smoke-test.sh
 git status
 ```
 

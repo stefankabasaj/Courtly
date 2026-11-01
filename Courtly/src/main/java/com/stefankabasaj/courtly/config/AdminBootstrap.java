@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
 /**
@@ -31,6 +32,7 @@ public class AdminBootstrap implements ApplicationRunner {
     public static final String LOCKED_PASSWORD_HASH = "LOCKED";
 
     static final int MIN_PASSWORD_LENGTH = 12;
+    static final int MAX_PASSWORD_BYTES  = 72;   // BCrypt's limit
 
     private final AdminProperties adminProperties;
     private final UserRepository  userRepository;
@@ -53,6 +55,10 @@ public class AdminBootstrap implements ApplicationRunner {
         if (password.length() < MIN_PASSWORD_LENGTH) {
             throw new IllegalStateException(
                     "ADMIN_PASSWORD must be at least " + MIN_PASSWORD_LENGTH + " characters.");
+        }
+        if (password.getBytes(StandardCharsets.UTF_8).length > MAX_PASSWORD_BYTES) {
+            throw new IllegalStateException(
+                    "ADMIN_PASSWORD must be at most " + MAX_PASSWORD_BYTES + " bytes.");
         }
 
         String normalizedEmail = email.trim().toLowerCase(Locale.ROOT);

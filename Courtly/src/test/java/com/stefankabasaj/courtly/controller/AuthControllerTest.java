@@ -146,4 +146,30 @@ class AuthControllerTest {
                 .andExpect(header().string("Retry-After", "600"))
                 .andExpect(jsonPath("$.status").value(429));
     }
+
+    @Test
+    @DisplayName("POST /auth/register - 422 for a password under 72 characters but over 72 bytes")
+    void register_multibytePasswordTooLong_returns422() throws Exception {
+        // 40 Cyrillic letters = 40 characters, 80 bytes
+        RegisterRequest req = new RegisterRequest("stefan@courtly.com", "ш".repeat(40));
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.fieldErrors.password").exists());
+    }
+
+    @Test
+    @DisplayName("POST /auth/register - accented password within 72 bytes is fine")
+    void register_accentedPassword_returns201() throws Exception {
+        RegisterRequest req = new RegisterRequest("stefan@courtly.com", "čćšđž-lozinka-1");
+        when(authService.register(any())).thenReturn(new UserResponse(
+                UUID.randomUUID(), "stefan@courtly.com", "USER", true, LocalDateTime.now()));
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isCreated());
+    }
 }

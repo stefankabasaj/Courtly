@@ -84,6 +84,12 @@ The grid is built from one query for the whole day. A slot is taken if any PENDI
 
 Exceptions thrown inside the Spring Security filter chain never reach `GlobalExceptionHandler`. `ApiSecurityErrorHandler` is wired in as the entry point and access-denied handler so 401 and 403 have the same JSON shape as every other error. Without a custom entry point Spring answers unauthenticated requests with 403.
 
+## Local time, not UTC
+
+Bookings are wall-clock times at the courts - "10:00" means 10:00 there, whatever zone the server is in. They're stored as plain `TIMESTAMP` / `LocalDateTime`, so `LocalDateTime.now()` has to be in the courts' zone too. Docker containers default to UTC, which put "now" 1-2 hours behind Belgrade: the 2-hour cancel rule and the "this slot is in the past" check were off by that much. `CourtlyApplication` sets the JVM default zone from `APP_TIMEZONE` (default `Europe/Belgrade`) before Spring starts.
+
+One venue, one zone. If Courtly ever covers venues in different zones, times would move to `OffsetDateTime` / `timestamptz` with a zone per court.
+
 ## BookingValidator as a separate class
 
 `BookingService` was getting long and was doing two jobs - orchestrating the booking flow AND validating times. Pulled validation into its own class. Now `BookingService` just calls `bookingValidator.validateBookingTimes(...)` and the rules are testable in isolation.

@@ -97,4 +97,13 @@ class AdminBootstrapTest {
                 .hasMessageContaining("at least");
         verify(userRepository, never()).save(any());
     }
+
+    @Test
+    @DisplayName("refuses a password over BCrypt's 72 bytes")
+    void passwordTooLong() {
+        assertThatThrownBy(() -> bootstrap("admin@courtly.com", "ш".repeat(40)).run(null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("bytes");
+        verify(userRepository, never()).save(any());
+    }
 }

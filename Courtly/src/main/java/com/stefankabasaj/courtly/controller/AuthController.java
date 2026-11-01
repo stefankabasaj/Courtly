@@ -25,10 +25,10 @@ public class AuthController {
                 .body(authService.register(request));
     }
 
-    @PostMapping("/login")
     // remote address, not X-Forwarded-For: that header is set by the client and
     // could be used to dodge the per-IP login limit. Behind a reverse proxy, set
     // server.forward-headers-strategy=native so this becomes the real client IP
+    @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(
             @Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
         return ResponseEntity.ok(authService.login(request, httpRequest.getRemoteAddr()));

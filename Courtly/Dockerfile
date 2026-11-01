@@ -16,9 +16,6 @@ RUN ./mvnw clean package -DskipTests -B --no-transfer-progress
 # Runtime stage
 FROM eclipse-temurin:21-jre-alpine AS runtime
 
-# wget is needed for HEALTHCHECK and isn't in alpine by default
-RUN apk add --no-cache wget
-
 # Don't run as root
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 WORKDIR /app
@@ -27,13 +24,17 @@ COPY --from=builder /app/target/courtly-*.jar app.jar
 RUN chown appuser:appgroup app.jar
 USER appuser
 
-# Container-aware JVM flags so heap respects the container memory limit
-ENV JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -Djava.security.egd=file:/dev/./urandom"
+# Heap up to 75% of the container's memory limit (the JVM reads the limit on its own)
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0"
 
 EXPOSE 8080
 
-# 90s start period gives Spring time to boot and connect to Postgres
+# 90s start period gives Spring time to boot and connect to Postgres.
+# wget is busybox's, already in the alpine base image
 HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
     CMD wget -qO- http://localhost:8080/api/v1/health || exit 1
 
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+# exec so java replaces the shell and gets SIGTERM from `docker stop` -
+# otherwise the shell swallows it and Docker kills the app after 10s instead
+# of letting Spring shut down cleanly
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]
