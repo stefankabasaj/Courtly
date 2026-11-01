@@ -107,7 +107,7 @@ class PaymentServiceTest {
         assertThatThrownBy(() -> paymentService.processPayment(
                 pendingBooking.getId(), user.getId(), new PaymentRequest("CREDIT_CARD")))
                 .isInstanceOf(ConflictException.class)
-                .hasMessageContaining("already processed");
+                .hasMessageContaining("already been processed");
     }
 
     @Test
