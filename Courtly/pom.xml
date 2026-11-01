@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.2.4</version>
+        <version>3.5.16</version>
         <relativePath/>
     </parent>
 
@@ -19,11 +19,7 @@
 
     <properties>
         <java.version>21</java.version>
-        <jjwt.version>0.12.5</jjwt.version>
-        <lombok.version>1.18.30</lombok.version>
-        <!-- Boot 3.2 manages Flyway 9, which has no flyway-database-postgresql module.
-             Flyway 10 is supported by Boot 3.2 and needs that module for PostgreSQL. -->
-        <flyway.version>10.10.0</flyway.version>
+        <jjwt.version>0.12.7</jjwt.version>
     </properties>
 
     <dependencies>
@@ -73,7 +69,6 @@
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-database-postgresql</artifactId>
-            <version>${flyway.version}</version>
         </dependency>
 
         <!-- JWT -->
@@ -99,7 +94,6 @@
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
-            <version>${lombok.version}</version>
             <optional>true</optional>
         </dependency>
 

@@ -14,7 +14,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -40,8 +40,8 @@ class CourtControllerTest {
     @Autowired MockMvc      mockMvc;
     @Autowired ObjectMapper objectMapper;
 
-    @MockBean CourtService courtService;
-    @MockBean JwtService   jwtService;
+    @MockitoBean CourtService courtService;
+    @MockitoBean JwtService   jwtService;
 
     private final CourtResponse sample = new CourtResponse(
             UUID.randomUUID(), "Court A", "CLAY", new BigDecimal("25.00"), true);

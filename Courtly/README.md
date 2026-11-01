@@ -1,7 +1,7 @@
 # Courtly
 
 
-REST API for managing tennis court reservations. Java 21, Spring Boot 3.2, PostgreSQL.
+REST API for managing tennis court reservations. Java 21, Spring Boot 3.5, PostgreSQL.
 
 
 Users register, log in, browse courts, book a slot, and pay. Admins manage courts and can see all bookings.
@@ -33,7 +33,7 @@ For more setup options see [docs/local-setup.md](docs/local-setup.md).
 ## Stack
 
 
-- Java 21, Spring Boot 3.2
+- Java 21, Spring Boot 3.5
 - Spring Security with JWT (HMAC-SHA256)
 - Spring Data JPA + Hibernate
 - PostgreSQL 16, Flyway migrations

@@ -4,7 +4,7 @@
 
 A Java and Spring Boot backend for managing courts, reservations and payment records. Courtly brings together my software work and my background in competitive tennis.
 
-**Java 21 · Spring Boot 3.2 · PostgreSQL 16 · Docker · JWT**
+**Java 21 · Spring Boot 3.5 · PostgreSQL 16 · Docker · JWT**
 
 ## What the application covers
 
