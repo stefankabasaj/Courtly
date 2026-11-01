@@ -8,7 +8,7 @@ If you're forking this or working on it with me.
 git clone https://github.com/stefankabasaj/Courtly.git
 cd Courtly/Courtly
 cp .env.example .env
-docker compose up postgres -d
+docker compose up postgres redis -d
 set -a; source .env; set +a
 ./mvnw spring-boot:run
 ```

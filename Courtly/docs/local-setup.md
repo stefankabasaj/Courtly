@@ -12,7 +12,9 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Postgres starts first, the app waits for it to be ready, then starts. About 30 seconds total on first run.
+Postgres and Redis start first, then two app instances, then nginx in front of them on port 8080. About a minute on the first run.
+
+To see which instance answered what: `docker compose logs -f nginx`.
 
 ## Running just the database
 
@@ -20,7 +22,7 @@ If I want to run the app from IntelliJ or `mvnw spring-boot:run`:
 
 ```bash
 cp .env.example .env
-docker compose up postgres -d
+docker compose up postgres redis -d
 set -a; source .env; set +a   # Spring doesn't read .env by itself
 ./mvnw spring-boot:run
 ```
@@ -84,6 +86,8 @@ Older versions seeded `admin@courtly.com` / `Admin123!`. That password is public
 | `LOGIN_MAX_FAILURES_PER_EMAIL` | `5` |
 | `LOGIN_MAX_FAILURES_PER_IP` | `20` |
 | `LOGIN_FAILURE_WINDOW` | `15m` |
+| `REDIS_HOST` | `localhost` |
+| `REDIS_PORT` | `6379` |
 | `SERVER_PORT` | `8080` |
 
 Generate a JWT secret:
@@ -99,4 +103,4 @@ Starts the app and PostgreSQL with docker compose, runs the real Flyway migratio
 ./scripts/smoke-test.sh
 ```
 
-Needs Docker, `curl`, `jq` and `openssl`. It runs as a separate compose project (`courtly-smoke`) with throwaway credentials, so your local database is never touched, and removes its containers and volume when it finishes. Ports 8080 and 5432 have to be free.
+Needs Docker, `curl`, `jq` and `openssl`. It runs as a separate compose project (`courtly-smoke`) with throwaway credentials, so your local database is never touched, and removes its containers and volume when it finishes. Ports 8080, 5432 and 6379 have to be free.

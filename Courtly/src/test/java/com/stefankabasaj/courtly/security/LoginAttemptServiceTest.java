@@ -32,7 +32,8 @@ class LoginAttemptServiceTest {
 
     private final TestClock clock = new TestClock();
     private final LoginAttemptService service = new LoginAttemptService(
-            new LoginRateLimitProperties(3, 5, Duration.ofMinutes(15)), clock);
+            new LoginRateLimitProperties(3, 5, Duration.ofMinutes(15)),
+            new InMemoryFailureCounter(clock));
 
     private void fail(String email, String ip, int times) {
         for (int i = 0; i < times; i++) service.recordFailure(email, ip);
@@ -54,6 +55,18 @@ class LoginAttemptServiceTest {
                 .isInstanceOf(TooManyRequestsException.class)
                 .satisfies(e -> assertThat(((TooManyRequestsException) e).getRetryAfterSeconds())
                         .isEqualTo(15 * 60));
+    }
+
+    @Test
+    @DisplayName("Retry-After counts down from the first failure, not the last")
+    void retryAfterFromFirstFailure() {
+        service.recordFailure(EMAIL, IP);
+        clock.advance(Duration.ofMinutes(5));
+        fail(EMAIL, IP, 2);
+
+        assertThatThrownBy(() -> service.checkAllowed(EMAIL, IP))
+                .satisfies(e -> assertThat(((TooManyRequestsException) e).getRetryAfterSeconds())
+                        .isEqualTo(10 * 60));
     }
 
     @Test
@@ -88,16 +101,6 @@ class LoginAttemptServiceTest {
         fail(EMAIL, IP, 2);
         service.recordSuccess(EMAIL);
         fail(EMAIL, IP, 2);
-        assertThatNoException().isThrownBy(() -> service.checkAllowed(EMAIL, IP));
-    }
-
-    @Test
-    @DisplayName("purge drops expired counters")
-    void purge() {
-        fail(EMAIL, IP, 3);
-        clock.advance(Duration.ofMinutes(16));
-        service.purgeExpired();
-        fail(EMAIL, IP, 1);
         assertThatNoException().isThrownBy(() -> service.checkAllowed(EMAIL, IP));
     }
 }

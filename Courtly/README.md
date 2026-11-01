@@ -37,6 +37,8 @@ For more setup options see [docs/local-setup.md](docs/local-setup.md).
 - Spring Security with JWT (HMAC, signed with `JWT_SECRET`)
 - Spring Data JPA + Hibernate
 - PostgreSQL 16, Flyway migrations
+- Redis (login rate limit shared between instances)
+- nginx in front of two app instances
 - Docker, Docker Compose
 - JUnit 5, Mockito
 

@@ -7,7 +7,10 @@
 # Needs: docker (with compose), curl, jq, openssl.
 #
 # Runs as its own compose project with throwaway credentials, so it never
-# touches your local stack's database. It does need ports 8080 and 5432 free.
+# touches your local stack's database. It does need ports 8080, 5432 and 6379 free.
+#
+# Requests go through nginx to two app replicas, so everything here also
+# checks that the instances agree with each other (shared Redis, same JWT key).
 
 set -euo pipefail
 
@@ -205,6 +208,8 @@ expect 400 "expired booking can't be paid" -X POST "$BASE/payments/$UNPAID_ID" \
 book "the freed slot can be booked again" 201 16 17
 
 # --- login rate limit -------------------------------------------------------------
+# nginx alternates between the two replicas, so these attempts land on both of them.
+# the 6th is only blocked if they share one counter (Redis)
 BRUTE="brute-$(date +%s)@courtly.test"
 expect 201 "register a second user" -X POST "$BASE/auth/register" \
     -H 'Content-Type: application/json' \
@@ -250,16 +255,22 @@ expect 200 "actuator health for admin" "http://localhost:8080/actuator/health" \
 [ "$(jq -r '.components.db.status' <<<"$RESPONSE")" = "UP" ] || fail "admin should see the db status"
 pass "health details only for admins"
 
-# --- container --------------------------------------------------------------------
-# the Docker healthcheck (busybox wget inside the image) has to work too
-APP_CONTAINER=$("${COMPOSE[@]}" ps -q app)
-for i in $(seq 1 30); do
-    HEALTH=$(docker inspect --format '{{.State.Health.Status}}' "$APP_CONTAINER")
-    [ "$HEALTH" = "healthy" ] && break
-    [ "$i" -eq 30 ] && fail "container health is '$HEALTH' after 90s"
-    sleep 3
+# --- load balancing -------------------------------------------------------------
+UPSTREAMS=$("${COMPOSE[@]}" logs nginx | grep -oE -- '-> [0-9.]+:8080' | sort -u | wc -l)
+[ "$UPSTREAMS" -eq 2 ] || fail "expected requests on 2 replicas, nginx used $UPSTREAMS"
+pass "nginx spread the requests over both replicas"
+
+# --- containers -------------------------------------------------------------------
+# the Docker healthcheck (busybox wget inside the image) has to work on every replica
+for container in $("${COMPOSE[@]}" ps -q app); do
+    for i in $(seq 1 30); do
+        HEALTH=$(docker inspect --format '{{.State.Health.Status}}' "$container")
+        [ "$HEALTH" = "healthy" ] && break
+        [ "$i" -eq 30 ] && fail "container $container health is '$HEALTH' after 90s"
+        sleep 3
+    done
 done
-pass "Docker healthcheck reports healthy"
+pass "Docker healthcheck reports healthy on both replicas"
 
 # exec in the ENTRYPOINT: java is PID 1 and shuts down on SIGTERM instead of being killed
 STOP_START=$(date +%s)
@@ -267,6 +278,10 @@ STOP_START=$(date +%s)
 STOP_SECONDS=$(( $(date +%s) - STOP_START ))
 [ "$STOP_SECONDS" -lt 15 ] || fail "app took ${STOP_SECONDS}s to stop - SIGTERM is not reaching java"
 pass "app stops cleanly on SIGTERM (${STOP_SECONDS}s)"
+
+# with the app gone, nginx has nobody to send requests to. a 502 here (and not a
+# hang or a connection error) shows nginx itself keeps answering
+expect 502 "nginx answers 502 when no replica is up" "$BASE/health"
 
 echo
 echo "Smoke test passed."

@@ -68,11 +68,21 @@ The first migration seeded `admin@courtly.com` with a password that was publishe
 
 A PENDING booking holds its slot. Without a deadline anyone could block a court for days without paying. `BookingExpiryJob` runs every minute and cancels PENDING bookings older than `BOOKING_PAYMENT_TIMEOUT`. It is one UPDATE that also bumps `version`, so a payment racing with it fails on the optimistic lock (409) instead of confirming a booking that was just cancelled. `PaymentService` also rejects payments outside the window, which covers the up-to-a-minute gap between runs.
 
-## Login rate limit in memory
+## Login rate limit
 
 `LoginAttemptService` counts failed logins per email (stops guessing one password) and per IP (stops trying a few passwords on many accounts) in a fixed 15-minute window. Unknown emails count the same as wrong passwords, so the limit doesn't reveal which emails exist. Once blocked, even the right password gets 429 - otherwise the switch from 429 to 200 would confirm the guess.
 
-Counters are in memory, so each instance counts separately and a restart clears them. Good enough for one instance and no extra infrastructure. With several instances the counters would move to Redis. The IP is the socket's remote address, not `X-Forwarded-For`, because a client can put anything in that header; behind a reverse proxy, `server.forward-headers-strategy=native` makes the remote address the real client IP.
+The counters started out in memory. That stopped working the moment there were two instances: nginx alternates between them, so each one only saw half the attempts and an attacker got double the limit. They're in Redis now - one key per email / IP, created with `INCR` and given a TTL in the same Lua script, so a crash can't leave a counter that never expires. Redis expiring the keys also replaced the cleanup job.
+
+If Redis is down, login answers 503 rather than skipping the limit. Failing open would mean unlimited guessing whenever Redis has a bad minute.
+
+The IP is the socket's remote address, not `X-Forwarded-For`, because a client can put anything in that header. In docker compose nginx overwrites the header with the real client address and the app runs with `server.forward-headers-strategy=native`, which trusts it only from a private-network proxy.
+
+## Two instances behind nginx
+
+`docker compose` runs two app replicas behind nginx. It's mostly here to keep the app honest about state: anything kept in one instance's memory is a bug the moment there are two, and the smoke test runs every check through the load balancer.
+
+What had to change: the login counters (Redis, above). What didn't: sessions (there are none, JWT), and `BookingExpiryJob`, which runs on both instances but is a single `UPDATE ... WHERE status = 'PENDING'` - running it twice just finds nothing the second time. A real distributed lock (ShedLock, Redis locks) would only be needed for a job that must not run twice.
 
 ## Opening hours and availability
 

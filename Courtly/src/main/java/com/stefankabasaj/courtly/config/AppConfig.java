@@ -4,7 +4,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
-// scheduling is for BookingExpiryJob and LoginAttemptService's cleanup
+// scheduling is for BookingExpiryJob
 @Configuration
 @EnableScheduling
 @EnableConfigurationProperties({

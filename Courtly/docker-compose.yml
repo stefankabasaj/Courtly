@@ -20,13 +20,33 @@ services:
       retries: 5
       start_period: 10s
 
+  # login failure counters, shared by both app replicas. nothing worth keeping
+  # across restarts, so persistence is off
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # two replicas behind nginx. no ports of their own - everything goes through nginx
   app:
     build: .
     restart: unless-stopped
+    deploy:
+      replicas: 2
     env_file: .env
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
+      REDIS_HOST: redis
+      # nginx sets X-Forwarded-For - trust it so the per-IP login limit sees the real client
+      SERVER_FORWARD_HEADERS_STRATEGY: native
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -36,10 +56,10 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       BOOKING_PAYMENT_TIMEOUT: ${BOOKING_PAYMENT_TIMEOUT:-15m}
       BOOKING_EXPIRY_CHECK_INTERVAL_MS: ${BOOKING_EXPIRY_CHECK_INTERVAL_MS:-60000}
-    ports:
-      - "8080:8080"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/v1/health || exit 1"]
@@ -47,6 +67,23 @@ services:
       timeout: 10s
       retries: 3
       start_period: 90s
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "8080:80"
+    # nginx looks up the replicas once, at startup, so they have to be running first
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/api/v1/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
 volumes:
   postgres_data:

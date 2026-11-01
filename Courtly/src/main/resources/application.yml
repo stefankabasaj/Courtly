@@ -15,6 +15,12 @@ spring:
       idle-timeout: 600000
       max-lifetime: 1800000
 
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2s
+
   jpa:
     hibernate:
       ddl-auto: validate

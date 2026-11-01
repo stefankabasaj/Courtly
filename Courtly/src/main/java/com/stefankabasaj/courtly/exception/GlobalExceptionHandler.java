@@ -5,6 +5,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Path;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpHeaders;
@@ -151,6 +152,17 @@ public class GlobalExceptionHandler {
         log.warn("Optimistic lock failure at {}: {}", req.getRequestURI(), ex.getMessage());
         return error(HttpStatus.CONFLICT, "Conflict",
                 "This resource was modified by someone else. Please reload and try again.", req);
+    }
+
+    // the database or Redis is down. 503 tells the client it's us, not them, and that
+    // retrying later makes sense. login fails closed on purpose: no Redis means no
+    // login limit, so no logins rather than unlimited guessing
+    @ExceptionHandler(DataAccessResourceFailureException.class)
+    public ResponseEntity<ErrorResponse> handleBackendDown(
+            DataAccessResourceFailureException ex, HttpServletRequest req) {
+        log.error("Backend unavailable at {}: {}", req.getRequestURI(), ex.getMessage());
+        return error(HttpStatus.SERVICE_UNAVAILABLE, "Service Unavailable",
+                "The service is temporarily unavailable. Please try again in a moment.", req);
     }
 
     // malformed JSON, wrong field types, unknown enum value, ...
