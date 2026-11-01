@@ -44,6 +44,14 @@ app:
   jwt:
     secret: ${JWT_SECRET}
     expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+  # admin account created at startup - see AdminBootstrap
+  admin:
+    email: ${ADMIN_EMAIL:}
+    password: ${ADMIN_PASSWORD:}
+  # unpaid PENDING bookings are cancelled after payment-timeout - see BookingExpiryJob
+  booking:
+    payment-timeout: ${BOOKING_PAYMENT_TIMEOUT:15m}
+    expiry-check-interval-ms: ${BOOKING_EXPIRY_CHECK_INTERVAL_MS:60000}
 
 server:
   port: ${SERVER_PORT:8080}

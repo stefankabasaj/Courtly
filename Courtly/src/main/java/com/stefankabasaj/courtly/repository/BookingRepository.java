@@ -4,6 +4,7 @@ import com.stefankabasaj.courtly.entity.Booking;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -56,5 +57,25 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
             @Param("courtId")   UUID courtId,
             @Param("startTime") LocalDateTime startTime,
             @Param("endTime")   LocalDateTime endTime
+    );
+
+    // bulk update skips Hibernate's @Version and @UpdateTimestamp handling, so both are set here.
+    // statuses are parameters so the query doesn't need the enum's fully qualified name
+    @Modifying
+    @Query("""
+        UPDATE Booking b
+        SET b.status             = :cancelled,
+            b.cancellationReason = :reason,
+            b.updatedAt          = :now,
+            b.version            = b.version + 1
+        WHERE b.status    = :pending
+          AND b.createdAt < :cutoff
+        """)
+    int cancelPendingCreatedBefore(
+            @Param("cutoff")    LocalDateTime cutoff,
+            @Param("now")       LocalDateTime now,
+            @Param("reason")    String reason,
+            @Param("pending")   Booking.BookingStatus pending,
+            @Param("cancelled") Booking.BookingStatus cancelled
     );
 }

@@ -24,7 +24,7 @@ curl http://localhost:8080/api/v1/health
 ```
 
 
-Seeded admin: `admin@courtly.com` / `Admin123!`
+Admin account: set `ADMIN_EMAIL` and `ADMIN_PASSWORD` (at least 12 characters) in `.env` before the first start. The app creates the account on startup. No admin password is stored in the repository.
 
 
 For more setup options see [docs/local-setup.md](docs/local-setup.md).
@@ -90,6 +90,8 @@ All protected endpoints need `Authorization: Bearer <token>`.
 
 
 The payment gateway is simulated and approves about 90% of payments.
+
+A booking has to be paid within `BOOKING_PAYMENT_TIMEOUT` (default 15 minutes). Unpaid bookings are then cancelled automatically with the reason `Not paid in time`, which frees the slot.
 
 
 ### Errors

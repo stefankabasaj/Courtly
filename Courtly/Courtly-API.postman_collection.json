@@ -8,7 +8,8 @@
     { "key": "baseUrl",   "value": "http://localhost:8080/api/v1" },
     { "key": "token",     "value": "" },
     { "key": "courtId",   "value": "" },
-    { "key": "bookingId", "value": "" }
+    { "key": "bookingId", "value": "" },
+    { "key": "adminPassword", "value": "" }
   ],
   "item": [
     {
@@ -40,7 +41,7 @@
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "url": "{{baseUrl}}/auth/login",
-            "body": { "mode": "raw", "raw": "{\n  \"email\": \"admin@courtly.com\",\n  \"password\": \"Admin123!\"\n}" }
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"admin@courtly.com\",\n  \"password\": \"{{adminPassword}}\"\n}" }
           }
         }
       ]

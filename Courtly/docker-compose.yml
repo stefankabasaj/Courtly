@@ -2,15 +2,15 @@ services:
 
   postgres:
     image: postgres:16-alpine
-    container_name: courtly-postgres
     restart: unless-stopped
     env_file: .env
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    # localhost only - on a server the database must not be reachable from the internet
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -22,7 +22,6 @@ services:
 
   app:
     build: .
-    container_name: courtly-app
     restart: unless-stopped
     env_file: .env
     environment:
@@ -32,6 +31,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      BOOKING_PAYMENT_TIMEOUT: ${BOOKING_PAYMENT_TIMEOUT:-15m}
+      BOOKING_EXPIRY_CHECK_INTERVAL_MS: ${BOOKING_EXPIRY_CHECK_INTERVAL_MS:-60000}
     ports:
       - "8080:8080"
     depends_on:

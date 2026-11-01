@@ -1,5 +1,6 @@
 package com.stefankabasaj.courtly.service;
 
+import com.stefankabasaj.courtly.config.BookingProperties;
 import com.stefankabasaj.courtly.dto.request.PaymentRequest;
 import com.stefankabasaj.courtly.dto.response.PaymentResponse;
 import com.stefankabasaj.courtly.entity.Booking;
@@ -29,6 +30,7 @@ public class PaymentService {
 
     private final PaymentRepository paymentRepository;
     private final BookingRepository bookingRepository;
+    private final BookingProperties bookingProperties;
 
     @Transactional
     public PaymentResponse processPayment(UUID bookingId, UUID payerId, PaymentRequest request) {
@@ -47,6 +49,12 @@ public class PaymentService {
             throw new BusinessException(
                     "Can only process payment for PENDING bookings. " +
                     "Current status: " + booking.getStatus());
+        }
+
+        // BookingExpiryJob cancels these within a minute; this closes that gap
+        if (isPaymentWindowExpired(booking)) {
+            throw new BusinessException(
+                    "The payment window for this booking has expired. Please book again.");
         }
 
         // a booking has at most one payment row (unique constraint). a FAILED one is
@@ -92,6 +100,12 @@ public class PaymentService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "No payment found for booking: " + bookingId));
         return toResponse(payment);
+    }
+
+    private boolean isPaymentWindowExpired(Booking booking) {
+        return booking.getCreatedAt() != null
+                && booking.getCreatedAt().plus(bookingProperties.paymentTimeout())
+                        .isBefore(LocalDateTime.now());
     }
 
     private PaymentResponse toResponse(Payment p) {

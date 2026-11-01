@@ -49,9 +49,10 @@ I use DataGrip but any client works.
 
 ## Seeded data
 
-First migration creates an admin and four courts:
+The migrations create four courts. The admin account comes from `.env`:
 
-- `admin@courtly.com` / `Admin123!` (the V1 seed hash was wrong; V2 fixes it. Change this password before deploying anywhere public)
+- `ADMIN_EMAIL` / `ADMIN_PASSWORD` - created on startup if it doesn't exist. An existing account's password is never overwritten.
+- Older versions seeded `admin@courtly.com` / `Admin123!`. That password is public, so the V3 migration locks the account; setting `ADMIN_EMAIL=admin@courtly.com` unlocks it with your `ADMIN_PASSWORD`.
 - Court A - Clay (€25/h)
 - Court B - Grass (€30/h)
 - Court C - Hard (€20/h)
@@ -68,6 +69,9 @@ First migration creates an admin and four courts:
 | `DB_PORT` | `5432` |
 | `JWT_SECRET` | - (min 32 chars) |
 | `JWT_EXPIRATION_MS` | `86400000` (24h) |
+| `ADMIN_EMAIL` | - |
+| `ADMIN_PASSWORD` | - (min 12 chars) |
+| `BOOKING_PAYMENT_TIMEOUT` | `15m` |
 
 Generate a JWT secret:
 ```bash
@@ -82,4 +86,4 @@ Starts the app and PostgreSQL with docker compose, runs the real Flyway migratio
 ./scripts/smoke-test.sh
 ```
 
-Needs Docker, `curl` and `jq`. It creates a throwaway `.env` if you don't have one and removes the containers and volume when it finishes.
+Needs Docker, `curl`, `jq` and `openssl`. It runs as a separate compose project (`courtly-smoke`) with throwaway credentials, so your local database is never touched, and removes its containers and volume when it finishes. Ports 8080 and 5432 have to be free.

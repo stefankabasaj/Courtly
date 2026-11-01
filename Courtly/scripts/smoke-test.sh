@@ -1,24 +1,39 @@
 #!/usr/bin/env bash
 # End-to-end smoke test: starts the real app + PostgreSQL with docker compose,
-# so Flyway migrations (including V2) run against a real database, then checks
-# the main flows over HTTP.
+# so Flyway migrations run against a real database, then checks the main flows
+# over HTTP.
 #
 # Usage (from the Courtly/ folder):  ./scripts/smoke-test.sh
-# Needs: docker (with compose), curl, jq.
-# Creates a throwaway .env if none exists and tears everything down at the end.
+# Needs: docker (with compose), curl, jq, openssl.
+#
+# Runs as its own compose project with throwaway credentials, so it never
+# touches your local stack's database. It does need ports 8080 and 5432 free.
 
 set -euo pipefail
 
 BASE="http://localhost:8080/api/v1"
+COMPOSE=(docker compose -p courtly-smoke)
 CREATED_ENV=false
+
+# Throwaway settings. Shell variables win over .env in docker-compose.yml, so
+# your own .env (if you have one) is never used for any of these.
+export POSTGRES_DB=courtly
+export POSTGRES_USER=courtly_smoke
+export POSTGRES_PASSWORD="$(openssl rand -hex 16)"
+export JWT_SECRET="$(openssl rand -base64 48 | tr -d '\n')"
+export ADMIN_EMAIL=admin@courtly.com
+export ADMIN_PASSWORD="$(openssl rand -hex 12)"
+# short payment window so expiry can be checked within the test
+export BOOKING_PAYMENT_TIMEOUT=30s
+export BOOKING_EXPIRY_CHECK_INTERVAL_MS=2000
 
 cleanup() {
     status=$?
     if [ "$status" -ne 0 ]; then
         echo "---- smoke test FAILED, app logs follow ----"
-        docker compose logs app --tail 150 || true
+        "${COMPOSE[@]}" logs app --tail 150 || true
     fi
-    docker compose down -v >/dev/null 2>&1 || true
+    "${COMPOSE[@]}" down -v >/dev/null 2>&1 || true
     if [ "$CREATED_ENV" = true ]; then rm -f .env; fi
     exit "$status"
 }
@@ -28,7 +43,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 pass() { echo "ok   $*"; }
 
 # expect <expected status> <description> <curl args...>
-# prints the response body, fails if the status differs
+# stores the response body in RESPONSE, fails if the status differs
 expect() {
     local want=$1 what=$2; shift 2
     local out code body
@@ -40,21 +55,25 @@ expect() {
     RESPONSE=$body
 }
 
+# book <description> <expected status> <start hour> <end hour>
+book() {
+    expect "$2" "$1" -X POST "$BASE/bookings" \
+        -H "Authorization: Bearer $USER_TOKEN" -H 'Content-Type: application/json' \
+        -d "{\"courtId\":\"$COURT_ID\",\"startTime\":\"${DAY}T$3:00:00\",\"endTime\":\"${DAY}T$4:00:00\"}"
+}
+
+psql_smoke() {
+    "${COMPOSE[@]}" exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"
+}
+
+# docker-compose.yml lists .env as an env_file, so it has to exist
 if [ ! -f .env ]; then
     CREATED_ENV=true
-    cat > .env <<EOF
-POSTGRES_DB=courtly
-POSTGRES_USER=courtly_user
-POSTGRES_PASSWORD=$(openssl rand -hex 16)
-DB_HOST=localhost
-DB_PORT=5432
-JWT_SECRET=$(openssl rand -base64 48 | tr -d '\n')
-JWT_EXPIRATION_MS=3600000
-EOF
+    touch .env
 fi
 
 echo "Starting postgres + app..."
-docker compose up -d --build
+"${COMPOSE[@]}" up -d --build
 
 echo "Waiting for the app to be healthy..."
 for i in $(seq 1 60); do
@@ -68,11 +87,16 @@ pass "health endpoint"
 expect 401 "no token is 401 with a JSON body" "$BASE/courts"
 [ "$(jq -r .status <<<"$RESPONSE")" = "401" ] || fail "401 body is not the standard error JSON"
 
-# --- seeded admin (fixed in V2) -------------------------------------------------
-expect 200 "seeded admin can log in" -X POST "$BASE/auth/login" \
+# --- admin (V3 locks the published seed, AdminBootstrap unlocks it) -------------
+expect 401 "published seed password no longer works" -X POST "$BASE/auth/login" \
     -H 'Content-Type: application/json' \
     -d '{"email":"admin@courtly.com","password":"Admin123!"}'
+
+expect 200 "admin logs in with ADMIN_PASSWORD" -X POST "$BASE/auth/login" \
+    -H 'Content-Type: application/json' \
+    -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}"
 ADMIN_TOKEN=$(jq -r .token <<<"$RESPONSE")
+[ "$(jq -r .role <<<"$RESPONSE")" = "ADMIN" ] || fail "bootstrapped account is not ADMIN"
 
 expect 200 "list courts" "$BASE/courts" -H "Authorization: Bearer $ADMIN_TOKEN"
 COURT_ID=$(jq -r '.[0].id' <<<"$RESPONSE")
@@ -95,27 +119,18 @@ expect 403 "user cannot create courts" -X POST "$BASE/courts" \
 
 # --- bookings -------------------------------------------------------------------
 DAY=$(date -u -d '+3 days' +%Y-%m-%d)
-expect 201 "book 10-12" -X POST "$BASE/bookings" \
-    -H "Authorization: Bearer $USER_TOKEN" -H 'Content-Type: application/json' \
-    -d "{\"courtId\":\"$COURT_ID\",\"startTime\":\"${DAY}T10:00:00\",\"endTime\":\"${DAY}T12:00:00\"}"
+book "book 10-12" 201 10 12
 BOOKING_ID=$(jq -r .id <<<"$RESPONSE")
 [ "$(jq -r .totalPrice <<<"$RESPONSE")" != "null" ] || fail "booking has no price"
 
-expect 409 "overlapping 11-13 is rejected" -X POST "$BASE/bookings" \
-    -H "Authorization: Bearer $USER_TOKEN" -H 'Content-Type: application/json' \
-    -d "{\"courtId\":\"$COURT_ID\",\"startTime\":\"${DAY}T11:00:00\",\"endTime\":\"${DAY}T13:00:00\"}"
-
-expect 201 "back-to-back 12-14 is allowed" -X POST "$BASE/bookings" \
-    -H "Authorization: Bearer $USER_TOKEN" -H 'Content-Type: application/json' \
-    -d "{\"courtId\":\"$COURT_ID\",\"startTime\":\"${DAY}T12:00:00\",\"endTime\":\"${DAY}T14:00:00\"}"
+book "overlapping 11-13 is rejected" 409 11 13
+book "back-to-back 12-14 is allowed" 201 12 14
 
 # --- database constraint from V2 ------------------------------------------------
 # bypass the app and insert an overlapping row directly: the exclusion
 # constraint must reject it even though no app-level check runs
-set -a; . ./.env; set +a
-USER_ID=$(docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
-    "SELECT id FROM courtly.users WHERE email = '$EMAIL'")
-if docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -c \
+USER_ID=$(psql_smoke -tAc "SELECT id FROM courtly.users WHERE email = '$EMAIL'")
+if psql_smoke -v ON_ERROR_STOP=1 -c \
     "INSERT INTO courtly.bookings (user_id, court_id, start_time, end_time, total_price)
      VALUES ('$USER_ID', '$COURT_ID', '${DAY} 10:30', '${DAY} 11:30', 25)" >/dev/null 2>&1; then
     fail "database accepted an overlapping booking (V2 exclusion constraint missing)"
@@ -131,9 +146,30 @@ expect 200 "user cancels own pending booking" -X PATCH "$BASE/bookings/$BOOKING_
     -d '{"reason":"smoke test"}'
 [ "$(jq -r .status <<<"$RESPONSE")" = "CANCELLED" ] || fail "booking not cancelled"
 
-expect 201 "cancelled slot can be booked again" -X POST "$BASE/bookings" \
+book "cancelled slot can be booked again" 201 10 12
+
+# --- unpaid bookings expire ------------------------------------------------------
+book "book 16-17 and leave it unpaid" 201 16 17
+UNPAID_ID=$(jq -r .id <<<"$RESPONSE")
+
+echo "Waiting for the ${BOOKING_PAYMENT_TIMEOUT} payment window to pass..."
+for i in $(seq 1 45); do
+    STATUS=$(curl -s "$BASE/bookings/$UNPAID_ID" -H "Authorization: Bearer $USER_TOKEN" | jq -r .status)
+    [ "$STATUS" = "CANCELLED" ] && break
+    [ "$i" -eq 45 ] && fail "unpaid booking still $STATUS after 90s"
+    sleep 2
+done
+pass "unpaid booking was cancelled automatically"
+
+expect 200 "cancellation reason says why" "$BASE/bookings/$UNPAID_ID" \
+    -H "Authorization: Bearer $USER_TOKEN"
+[ "$(jq -r .cancellationReason <<<"$RESPONSE")" = "Not paid in time" ] || fail "unexpected cancellation reason"
+
+expect 400 "expired booking can't be paid" -X POST "$BASE/payments/$UNPAID_ID" \
     -H "Authorization: Bearer $USER_TOKEN" -H 'Content-Type: application/json' \
-    -d "{\"courtId\":\"$COURT_ID\",\"startTime\":\"${DAY}T10:00:00\",\"endTime\":\"${DAY}T12:00:00\"}"
+    -d '{"paymentMethod":"CREDIT_CARD"}'
+
+book "the freed slot can be booked again" 201 16 17
 
 # --- error handling -------------------------------------------------------------
 expect 400 "malformed JSON is 400, not 500" -X POST "$BASE/auth/login" \

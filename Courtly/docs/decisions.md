@@ -60,6 +60,14 @@ If two requests slip through the app check, the database rejects the second one 
 
 A booking has at most one payment row. If the (simulated) gateway declines, the row is kept as FAILED and the next attempt reuses it, so the booking is never stuck in PENDING. Once a payment is SUCCESS the booking is CONFIRMED and further attempts are rejected.
 
+## Admin account from the environment
+
+The first migration seeded `admin@courtly.com` with a password that was published in the README, so every instance had the same admin login. V3 locks that account, and `AdminBootstrap` creates (or unlocks) the admin from `ADMIN_EMAIL` / `ADMIN_PASSWORD` at startup. It never overwrites an existing password, so restarting with a different `ADMIN_PASSWORD` doesn't silently change it.
+
+## Unpaid bookings expire
+
+A PENDING booking holds its slot. Without a deadline anyone could block a court for days without paying. `BookingExpiryJob` runs every minute and cancels PENDING bookings older than `BOOKING_PAYMENT_TIMEOUT`. It is one UPDATE that also bumps `version`, so a payment racing with it fails on the optimistic lock (409) instead of confirming a booking that was just cancelled. `PaymentService` also rejects payments outside the window, which covers the up-to-a-minute gap between runs.
+
 ## JSON errors from the security layer
 
 Exceptions thrown inside the Spring Security filter chain never reach `GlobalExceptionHandler`. `ApiSecurityErrorHandler` is wired in as the entry point and access-denied handler so 401 and 403 have the same JSON shape as every other error. Without a custom entry point Spring answers unauthenticated requests with 403.

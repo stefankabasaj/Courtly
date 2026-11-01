@@ -1,5 +1,6 @@
 package com.stefankabasaj.courtly.service;
 
+import com.stefankabasaj.courtly.config.BookingProperties;
 import com.stefankabasaj.courtly.dto.request.PaymentRequest;
 import com.stefankabasaj.courtly.dto.response.PaymentResponse;
 import com.stefankabasaj.courtly.entity.Booking;
@@ -17,11 +18,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.springframework.test.context.ActiveProfiles;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
@@ -37,13 +38,15 @@ class PaymentServiceTest {
 
     @Mock BookingRepository bookingRepository;
     @Mock PaymentRepository paymentRepository;
-    @InjectMocks PaymentService paymentService;
+    PaymentService paymentService;
 
     private User    user;
     private Booking pendingBooking;
 
     @BeforeEach
     void setUp() {
+        paymentService = new PaymentService(
+                paymentRepository, bookingRepository, new BookingProperties(Duration.ofMinutes(15)));
         user = User.builder().id(UUID.randomUUID())
                 .email("stefan@courtly.com").role(User.Role.USER).active(true).build();
         Court court = Court.builder().id(UUID.randomUUID())
@@ -131,6 +134,21 @@ class PaymentServiceTest {
         assertThat(resp.amount()).isEqualByComparingTo("50.00");
         assertThat(resp.status()).isIn("SUCCESS", "FAILED");
         assertThat(resp.paymentMethod()).isEqualTo("CREDIT_CARD");
+    }
+
+    @Test
+    @DisplayName("payment window expired → BusinessException, nothing saved")
+    void expiredWindow_throws() {
+        pendingBooking.setCreatedAt(LocalDateTime.now().minusMinutes(16));
+        when(bookingRepository.findByIdWithDetails(pendingBooking.getId()))
+                .thenReturn(Optional.of(pendingBooking));
+
+        assertThatThrownBy(() -> paymentService.processPayment(
+                pendingBooking.getId(), user.getId(), new PaymentRequest("CREDIT_CARD")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("expired");
+
+        verify(paymentRepository, never()).save(any());
     }
 
     private Payment paymentWithStatus(Payment.PaymentStatus status) {
