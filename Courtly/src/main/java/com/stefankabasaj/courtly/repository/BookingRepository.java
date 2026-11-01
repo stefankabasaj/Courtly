@@ -4,7 +4,6 @@ import com.stefankabasaj.courtly.entity.Booking;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -74,23 +73,23 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
             @Param("cancelled") Booking.BookingStatus cancelled
     );
 
-    // bulk update skips Hibernate's @Version and @UpdateTimestamp handling, so both are set here.
-    // statuses are parameters so the query doesn't need the enum's fully qualified name
-    @Modifying
+    // unpaid bookings past the payment window, locked for this transaction.
+    // SKIP LOCKED: rows another instance is already expiring are left to it
+    @Query(value = """
+        SELECT id FROM courtly.bookings
+        WHERE status = 'PENDING'
+          AND created_at < :cutoff
+        ORDER BY created_at
+        LIMIT :limit
+        FOR UPDATE SKIP LOCKED
+        """, nativeQuery = true)
+    List<UUID> lockExpiredPendingIds(@Param("cutoff") LocalDateTime cutoff, @Param("limit") int limit);
+
     @Query("""
-        UPDATE Booking b
-        SET b.status             = :cancelled,
-            b.cancellationReason = :reason,
-            b.updatedAt          = :now,
-            b.version            = b.version + 1
-        WHERE b.status    = :pending
-          AND b.createdAt < :cutoff
+        SELECT b FROM Booking b
+        JOIN FETCH b.user
+        JOIN FETCH b.court
+        WHERE b.id IN :ids
         """)
-    int cancelPendingCreatedBefore(
-            @Param("cutoff")    LocalDateTime cutoff,
-            @Param("now")       LocalDateTime now,
-            @Param("reason")    String reason,
-            @Param("pending")   Booking.BookingStatus pending,
-            @Param("cancelled") Booking.BookingStatus cancelled
-    );
+    List<Booking> findAllByIdWithDetails(@Param("ids") List<UUID> ids);
 }

@@ -12,7 +12,10 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Postgres and Redis start first, then two app instances, then nginx in front of them on port 8080. About a minute on the first run.
+Postgres, Redis, Kafka and Mailpit start first, then two app instances, nginx in front of them on port 8080, and the notification service. A couple of minutes on the first run (it builds two images).
+
+- API: http://localhost:8080
+- Emails: http://localhost:8025 (Mailpit catches everything, nothing really gets sent)
 
 To see which instance answered what: `docker compose logs -f nginx`.
 
@@ -22,7 +25,7 @@ If I want to run the app from IntelliJ or `mvnw spring-boot:run`:
 
 ```bash
 cp .env.example .env
-docker compose up postgres redis -d
+docker compose up postgres redis kafka mailpit -d
 set -a; source .env; set +a   # Spring doesn't read .env by itself
 ./mvnw spring-boot:run
 ```
@@ -86,6 +89,9 @@ Older versions seeded `admin@courtly.com` / `Admin123!`. That password is public
 | `LOGIN_MAX_FAILURES_PER_EMAIL` | `5` |
 | `LOGIN_MAX_FAILURES_PER_IP` | `20` |
 | `LOGIN_FAILURE_WINDOW` | `15m` |
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9094` |
+| `BOOKING_EVENTS_TOPIC` | `courtly.booking-events` |
+| `OUTBOX_PUBLISH_INTERVAL_MS` | `1000` |
 | `REDIS_HOST` | `localhost` |
 | `REDIS_PORT` | `6379` |
 | `SERVER_PORT` | `8080` |
@@ -97,10 +103,10 @@ openssl rand -base64 64
 
 ## Smoke test
 
-Starts the app and PostgreSQL with docker compose, runs the real Flyway migrations, and checks login, bookings, the overlap rules and error handling over HTTP. CI runs it after the unit tests.
+Starts the whole stack with docker compose and checks it end to end over HTTP: migrations, login and its rate limit across both instances, bookings and the overlap rules, payments, expiry, the emails in Mailpit (including that a replayed event isn't emailed twice and a broken message lands in the DLT), and error handling. CI runs it after the unit tests.
 
 ```bash
 ./scripts/smoke-test.sh
 ```
 
-Needs Docker, `curl`, `jq` and `openssl`. It runs as a separate compose project (`courtly-smoke`) with throwaway credentials, so your local database is never touched, and removes its containers and volume when it finishes. Ports 8080, 5432 and 6379 have to be free.
+Needs Docker, `curl`, `jq` and `openssl`. It runs as a separate compose project (`courtly-smoke`) with throwaway credentials, so your local database is never touched, and removes its containers and volume when it finishes. Ports 8080, 5432, 6379, 9094 and 8025 have to be free.

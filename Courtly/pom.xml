@@ -54,6 +54,12 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
+        <!-- Kafka - booking events, sent from the outbox -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
+
         <!-- Redis - login failure counters shared by all app instances -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

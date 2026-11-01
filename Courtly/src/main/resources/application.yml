@@ -21,6 +21,17 @@ spring:
       port: ${REDIS_PORT:6379}
       timeout: 2s
 
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9094}
+    producer:
+      acks: all
+      properties:
+        # fail a send after 5s instead of blocking a minute when Kafka is down -
+        # OutboxPublisher just tries again on the next run
+        max.block.ms: 5000
+        delivery.timeout.ms: 10000
+        request.timeout.ms: 5000
+
   jpa:
     hibernate:
       ddl-auto: validate
@@ -64,6 +75,10 @@ app:
   admin:
     email: ${ADMIN_EMAIL:}
     password: ${ADMIN_PASSWORD:}
+  # booking events go through the outbox to this topic - see OutboxPublisher
+  events:
+    topic: ${BOOKING_EVENTS_TOPIC:courtly.booking-events}
+    publish-interval-ms: ${OUTBOX_PUBLISH_INTERVAL_MS:1000}
   # unpaid PENDING bookings are cancelled after payment-timeout - see BookingExpiryJob
   booking:
     payment-timeout: ${BOOKING_PAYMENT_TIMEOUT:15m}

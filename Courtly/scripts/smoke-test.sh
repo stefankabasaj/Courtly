@@ -7,7 +7,8 @@
 # Needs: docker (with compose), curl, jq, openssl.
 #
 # Runs as its own compose project with throwaway credentials, so it never
-# touches your local stack's database. It does need ports 8080, 5432 and 6379 free.
+# touches your local stack's database. It does need ports 8080, 5432, 6379,
+# 9094 and 8025 free.
 #
 # Requests go through nginx to two app replicas, so everything here also
 # checks that the instances agree with each other (shared Redis, same JWT key).
@@ -27,7 +28,9 @@ export JWT_SECRET="$(openssl rand -base64 48 | tr -d '\n')"
 export ADMIN_EMAIL=admin@courtly.com
 export ADMIN_PASSWORD="$(openssl rand -hex 12)"
 # short payment window so expiry can be checked within the test
-export BOOKING_PAYMENT_TIMEOUT=30s
+# long enough for the steps before the expiry check (mail waits included),
+# short enough not to drag the test out
+export BOOKING_PAYMENT_TIMEOUT=60s
 export BOOKING_EXPIRY_CHECK_INTERVAL_MS=2000
 
 cleanup() {
@@ -63,6 +66,29 @@ book() {
     expect "$2" "$1" -X POST "$BASE/bookings" \
         -H "Authorization: Bearer $USER_TOKEN" -H 'Content-Type: application/json' \
         -d "{\"courtId\":\"$COURT_ID\",\"startTime\":\"${DAY}T$3:00:00\",\"endTime\":\"${DAY}T$4:00:00\"}"
+}
+
+MAILPIT="http://localhost:8025/api/v1"
+
+# mail_count <to> <subject prefix> - emails Mailpit caught for that address
+mail_count() {
+    curl -s --get --data-urlencode "query=to:$1" "$MAILPIT/search" \
+        | jq --arg s "$2" '[.messages[] | select(.Subject | startswith($s))] | length'
+}
+
+# wait_for_mail <to> <subject prefix> <description>
+# events go API -> outbox -> Kafka -> notification service -> Mailpit, so give it a moment
+wait_for_mail() {
+    for i in $(seq 1 30); do
+        [ "$(mail_count "$1" "$2")" -ge 1 ] && { pass "$3"; return; }
+        sleep 1
+    done
+    fail "$3: no email \"$2\" to $1 within 30s"
+}
+
+kafka_cli() {
+    local tool=$1; shift
+    "${COMPOSE[@]}" exec -T kafka "/opt/kafka/bin/$tool" --bootstrap-server localhost:9092 "$@"
 }
 
 psql_smoke() {
@@ -116,6 +142,7 @@ ADMIN_TOKEN=$(jq -r .token <<<"$RESPONSE")
 
 expect 200 "list courts" "$BASE/courts" -H "Authorization: Bearer $ADMIN_TOKEN"
 COURT_ID=$(jq -r '.[0].id' <<<"$RESPONSE")
+COURT_NAME=$(jq -r '.[0].name' <<<"$RESPONSE")
 [ "$(jq length <<<"$RESPONSE")" -eq 4 ] || fail "expected 4 seeded courts"
 
 # --- regular user ---------------------------------------------------------------
@@ -135,8 +162,11 @@ expect 403 "user cannot create courts" -X POST "$BASE/courts" \
 
 # --- bookings -------------------------------------------------------------------
 DAY=$(date -u -d '+3 days' +%Y-%m-%d)
+# how the emails write the day, e.g. "Wed 4 Nov"
+SDAY=$(LC_ALL=C date -d "$DAY" '+%a %-d %b')
 book "book 10-12" 201 10 12
 BOOKING_ID=$(jq -r .id <<<"$RESPONSE")
+wait_for_mail "$EMAIL" "Booking received: $COURT_NAME, $SDAY 10:00" "booking email arrives"
 [ "$(jq -r .totalPrice <<<"$RESPONSE")" != "null" ] || fail "booking has no price"
 
 book "overlapping 11-13 is rejected" 409 11 13
@@ -168,34 +198,79 @@ pass "database rejects overlapping booking inserted directly"
 expect 200 "admin can view the user's booking" "$BASE/bookings/$BOOKING_ID" \
     -H "Authorization: Bearer $ADMIN_TOKEN"
 
-expect 200 "user cancels own pending booking" -X PATCH "$BASE/bookings/$BOOKING_ID/cancel" \
-    -H "Authorization: Bearer $USER_TOKEN" -H 'Content-Type: application/json' \
-    -d '{"reason":"smoke test"}'
-[ "$(jq -r .status <<<"$RESPONSE")" = "CANCELLED" ] || fail "booking not cancelled"
-
-book "cancelled slot can be booked again" 201 10 12
-
 expect 200 "admin cancels a booking with PATCH" -X PATCH "$BASE/bookings/$BACK_TO_BACK_ID/admin-cancel" \
     -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
     -d '{"reason":"court maintenance"}'
 [ "$(jq -r .cancellationReason <<<"$RESPONSE")" = "court maintenance" ] || fail "admin reason not stored"
+wait_for_mail "$EMAIL" "Booking cancelled: $COURT_NAME, $SDAY 12:00" "admin cancellation email arrives"
 
 expect 403 "user can't admin-cancel" -X PATCH "$BASE/bookings/$BACK_TO_BACK_ID/admin-cancel" \
     -H "Authorization: Bearer $USER_TOKEN" -H 'Content-Type: application/json' \
     -d '{"reason":"nope"}'
+
+expect 200 "user cancels own pending booking" -X PATCH "$BASE/bookings/$BOOKING_ID/cancel" \
+    -H "Authorization: Bearer $USER_TOKEN" -H 'Content-Type: application/json' \
+    -d '{"reason":"smoke test"}'
+[ "$(jq -r .status <<<"$RESPONSE")" = "CANCELLED" ] || fail "booking not cancelled"
+wait_for_mail "$EMAIL" "Booking cancelled: $COURT_NAME, $SDAY 10:00" "cancellation email arrives"
+
+book "cancelled slot can be booked again" 201 10 12
+REBOOKED_ID=$(jq -r .id <<<"$RESPONSE")
+
+# the simulated gateway declines ~10% of payments; a declined one can be retried
+for i in $(seq 1 10); do
+    expect 200 "pay for the booking (attempt $i)" -X POST "$BASE/payments/$REBOOKED_ID" \
+        -H "Authorization: Bearer $USER_TOKEN" -H 'Content-Type: application/json' \
+        -d '{"paymentMethod":"CREDIT_CARD"}'
+    [ "$(jq -r .status <<<"$RESPONSE")" = "SUCCESS" ] && break
+    [ "$i" -eq 10 ] && fail "payment declined 10 times in a row"
+done
+wait_for_mail "$EMAIL" "Booking confirmed: $COURT_NAME, $SDAY 10:00" "confirmation email arrives"
+
+# --- events: outbox, duplicates, dead letters --------------------------------------
+for i in $(seq 1 15); do
+    UNSENT=$(psql_smoke -tAc "SELECT count(*) FROM courtly.outbox_events WHERE published_at IS NULL")
+    [ "$UNSENT" = "0" ] && break
+    [ "$i" -eq 15 ] && fail "$UNSENT outbox event(s) still unsent after 15s"
+    sleep 1
+done
+pass "every outbox event was sent to Kafka"
+
+# send the 12:00 booking's BOOKING_CREATED again, like after a crash between the
+# Kafka ack and marking the row. the notification service has to drop it
+RECEIVED_1200="Booking received: $COURT_NAME, $SDAY 12:00"
+[ "$(mail_count "$EMAIL" "$RECEIVED_1200")" -eq 1 ] || fail "expected exactly one '$RECEIVED_1200' email before the replay"
+psql_smoke -c "UPDATE courtly.outbox_events SET published_at = NULL
+               WHERE aggregate_id = '$BACK_TO_BACK_ID' AND event_type = 'BOOKING_CREATED'" >/dev/null
+for i in $(seq 1 15); do
+    [ "$(psql_smoke -tAc "SELECT count(*) FROM courtly.outbox_events WHERE published_at IS NULL")" = "0" ] && break
+    sleep 1
+done
+sleep 5
+[ "$(mail_count "$EMAIL" "$RECEIVED_1200")" -eq 1 ] || fail "a replayed event was emailed twice"
+pass "a replayed event is not emailed twice"
+
+# a message that isn't even JSON: no retries, straight to the dead letter topic
+echo 'this is not json' | kafka_cli kafka-console-producer.sh --topic courtly.booking-events >/dev/null
+DLT=$(kafka_cli kafka-console-consumer.sh --topic courtly.booking-events.DLT \
+        --from-beginning --max-messages 1 --timeout-ms 30000 2>/dev/null || true)
+grep -q "this is not json" <<<"$DLT" || fail "broken message did not reach the DLT"
+pass "a broken message ends up in the DLT"
 
 # --- unpaid bookings expire ------------------------------------------------------
 book "book 16-17 and leave it unpaid" 201 16 17
 UNPAID_ID=$(jq -r .id <<<"$RESPONSE")
 
 echo "Waiting for the ${BOOKING_PAYMENT_TIMEOUT} payment window to pass..."
-for i in $(seq 1 45); do
+for i in $(seq 1 60); do
     STATUS=$(curl -s "$BASE/bookings/$UNPAID_ID" -H "Authorization: Bearer $USER_TOKEN" | jq -r .status)
     [ "$STATUS" = "CANCELLED" ] && break
-    [ "$i" -eq 45 ] && fail "unpaid booking still $STATUS after 90s"
+    [ "$i" -eq 60 ] && fail "unpaid booking still $STATUS after 120s"
     sleep 2
 done
 pass "unpaid booking was cancelled automatically"
+# also shows the notification service kept going after the broken message
+wait_for_mail "$EMAIL" "Booking released: $COURT_NAME, $SDAY 16:00" "expiry email arrives"
 
 expect 200 "cancellation reason says why" "$BASE/bookings/$UNPAID_ID" \
     -H "Authorization: Bearer $USER_TOKEN"
@@ -254,6 +329,16 @@ expect 200 "actuator health for admin" "http://localhost:8080/actuator/health" \
     -H "Authorization: Bearer $ADMIN_TOKEN"
 [ "$(jq -r '.components.db.status' <<<"$RESPONSE")" = "UP" ] || fail "admin should see the db status"
 pass "health details only for admins"
+
+# --- notification service ----------------------------------------------------------
+NOTIFICATIONS=$("${COMPOSE[@]}" ps -q notifications)
+for i in $(seq 1 20); do
+    HEALTH=$(docker inspect --format '{{.State.Health.Status}}' "$NOTIFICATIONS")
+    [ "$HEALTH" = "healthy" ] && break
+    [ "$i" -eq 20 ] && fail "notification service health is '$HEALTH'"
+    sleep 3
+done
+pass "notification service is healthy"
 
 # --- load balancing -------------------------------------------------------------
 UPSTREAMS=$("${COMPOSE[@]}" logs nginx | grep -oE -- '-> [0-9.]+:8080' | sort -u | wc -l)

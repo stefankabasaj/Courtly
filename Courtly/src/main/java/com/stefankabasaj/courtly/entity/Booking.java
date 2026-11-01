@@ -69,8 +69,7 @@ public class Booking {
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
-    // Hibernate bumps this on every update. the one exception is BookingExpiryJob's
-    // bulk UPDATE, which skips Hibernate and sets it by hand
+    // Hibernate bumps this on every update, we never set it ourselves
     @UpdateTimestamp
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;

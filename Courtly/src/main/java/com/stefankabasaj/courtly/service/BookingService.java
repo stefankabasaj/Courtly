@@ -8,6 +8,8 @@ import com.stefankabasaj.courtly.dto.response.PageResponse;
 import com.stefankabasaj.courtly.entity.Booking;
 import com.stefankabasaj.courtly.entity.Court;
 import com.stefankabasaj.courtly.entity.User;
+import com.stefankabasaj.courtly.event.BookingEventRecorder;
+import com.stefankabasaj.courtly.event.BookingEventType;
 import com.stefankabasaj.courtly.exception.BusinessException;
 import com.stefankabasaj.courtly.exception.ConflictException;
 import com.stefankabasaj.courtly.exception.ResourceNotFoundException;
@@ -36,10 +38,11 @@ public class BookingService {
     // must cancel at least this many hours ahead
     private static final int CANCEL_NOTICE_HOURS = 2;
 
-    private final BookingRepository bookingRepository;
-    private final CourtRepository   courtRepository;
-    private final UserRepository    userRepository;
-    private final BookingValidator  bookingValidator;
+    private final BookingRepository    bookingRepository;
+    private final CourtRepository      courtRepository;
+    private final UserRepository       userRepository;
+    private final BookingValidator     bookingValidator;
+    private final BookingEventRecorder events;
 
     @Transactional
     public BookingResponse createBooking(UUID userId, BookingRequest request) {
@@ -84,6 +87,7 @@ public class BookingService {
                 .build();
 
         Booking saved = bookingRepository.save(booking);
+        events.record(saved, BookingEventType.BOOKING_CREATED);
         log.info("Booking created id={} totalPrice={}", saved.getId(), saved.getTotalPrice());
         return toResponse(saved);
     }
@@ -139,8 +143,10 @@ public class BookingService {
                         ? request.reason().trim()
                         : "Cancelled by user");
 
+        Booking saved = bookingRepository.save(booking);
+        events.record(saved, BookingEventType.BOOKING_CANCELLED);
         log.info("Booking {} cancelled by user {}", bookingId, userId);
-        return toResponse(bookingRepository.save(booking));
+        return toResponse(saved);
     }
 
     @Transactional(readOnly = true)
@@ -162,8 +168,10 @@ public class BookingService {
         booking.setStatus(Booking.BookingStatus.CANCELLED);
         booking.setCancellationReason(request.reason());
 
+        Booking saved = bookingRepository.save(booking);
+        events.record(saved, BookingEventType.BOOKING_CANCELLED);
         log.info("Booking {} admin-cancelled", bookingId);
-        return toResponse(bookingRepository.save(booking));
+        return toResponse(saved);
     }
 
     private Booking findOrThrow(UUID id) {

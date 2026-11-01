@@ -7,6 +7,8 @@ import com.stefankabasaj.courtly.entity.Booking;
 import com.stefankabasaj.courtly.entity.Court;
 import com.stefankabasaj.courtly.entity.Payment;
 import com.stefankabasaj.courtly.entity.User;
+import com.stefankabasaj.courtly.event.BookingEventRecorder;
+import com.stefankabasaj.courtly.event.BookingEventType;
 import com.stefankabasaj.courtly.exception.BusinessException;
 import com.stefankabasaj.courtly.exception.ConflictException;
 import com.stefankabasaj.courtly.exception.ResourceNotFoundException;
@@ -38,6 +40,7 @@ class PaymentServiceTest {
 
     @Mock BookingRepository bookingRepository;
     @Mock PaymentRepository paymentRepository;
+    @Mock BookingEventRecorder events;
     PaymentService paymentService;
 
     private User    user;
@@ -46,7 +49,7 @@ class PaymentServiceTest {
     @BeforeEach
     void setUp() {
         paymentService = new PaymentService(
-                paymentRepository, bookingRepository, new BookingProperties(Duration.ofMinutes(15)));
+                paymentRepository, bookingRepository, new BookingProperties(Duration.ofMinutes(15)), events);
         user = User.builder().id(UUID.randomUUID())
                 .email("stefan@courtly.com").role(User.Role.USER).active(true).build();
         Court court = Court.builder().id(UUID.randomUUID())
@@ -134,6 +137,12 @@ class PaymentServiceTest {
         assertThat(resp.amount()).isEqualByComparingTo("50.00");
         assertThat(resp.status()).isIn("SUCCESS", "FAILED");
         assertThat(resp.paymentMethod()).isEqualTo("CREDIT_CARD");
+        // the email only goes out for a payment that went through
+        if (resp.status().equals("SUCCESS")) {
+            verify(events).record(pendingBooking, BookingEventType.BOOKING_CONFIRMED);
+        } else {
+            verifyNoInteractions(events);
+        }
     }
 
     @Test

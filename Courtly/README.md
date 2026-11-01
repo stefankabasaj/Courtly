@@ -39,6 +39,8 @@ For more setup options see [docs/local-setup.md](docs/local-setup.md).
 - PostgreSQL 16, Flyway migrations
 - Redis (login rate limit shared between instances)
 - nginx in front of two app instances
+- Kafka + transactional outbox for booking events
+- `notification-service`: emails players from those events ([README](notification-service/README.md))
 - Docker, Docker Compose
 - JUnit 5, Mockito
 
@@ -96,6 +98,8 @@ Times are the courts' local time (`APP_TIMEZONE`, default `Europe/Belgrade`) and
 
 
 The payment gateway is simulated and approves about 90% of payments.
+
+Players get an email when a booking is created, confirmed, cancelled or released. Locally they land in Mailpit: http://localhost:8025.
 
 A booking has to be paid within `BOOKING_PAYMENT_TIMEOUT` (default 15 minutes). Unpaid bookings are then cancelled automatically with the reason `Not paid in time`, which frees the slot.
 

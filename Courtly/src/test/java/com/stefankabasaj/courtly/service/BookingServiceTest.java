@@ -9,6 +9,8 @@ import com.stefankabasaj.courtly.dto.response.PageResponse;
 import com.stefankabasaj.courtly.entity.Booking;
 import com.stefankabasaj.courtly.entity.Court;
 import com.stefankabasaj.courtly.entity.User;
+import com.stefankabasaj.courtly.event.BookingEventRecorder;
+import com.stefankabasaj.courtly.event.BookingEventType;
 import com.stefankabasaj.courtly.exception.BusinessException;
 import com.stefankabasaj.courtly.exception.ConflictException;
 import com.stefankabasaj.courtly.exception.ResourceNotFoundException;
@@ -37,6 +39,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ActiveProfiles("test")
@@ -47,6 +50,7 @@ class BookingServiceTest {
     @Mock  BookingRepository bookingRepository;
     @Mock  CourtRepository   courtRepository;
     @Mock  UserRepository    userRepository;
+    @Mock  BookingEventRecorder events;
     @Spy   BookingValidator  bookingValidator = new BookingValidator(new OpeningHoursProperties(7, 23));
     @InjectMocks BookingService bookingService;
 
@@ -101,6 +105,7 @@ class BookingServiceTest {
             assertThat(resp.durationHours()).isEqualTo(2);
             assertThat(resp.courtName()).isEqualTo("Court A");
             verify(bookingRepository).save(any());
+            verify(events).record(any(), eq(BookingEventType.BOOKING_CREATED));
         }
 
         @Test @DisplayName("deactivated user can't book")
@@ -172,6 +177,7 @@ class BookingServiceTest {
                     .hasMessageContaining("already booked");
 
             verify(bookingRepository, never()).save(any());
+            verifyNoInteractions(events);
         }
     }
 
@@ -227,6 +233,7 @@ class BookingServiceTest {
 
             assertThat(resp.status()).isEqualTo("CANCELLED");
             assertThat(resp.cancellationReason()).isEqualTo("Too busy");
+            verify(events).record(booking, BookingEventType.BOOKING_CANCELLED);
         }
 
         @Test @DisplayName("non-owner cannot cancel → 404")
@@ -305,6 +312,7 @@ class BookingServiceTest {
 
             assertThat(resp.status()).isEqualTo("CANCELLED");
             assertThat(resp.cancellationReason()).isEqualTo("Court maintenance");
+            verify(events).record(booking, BookingEventType.BOOKING_CANCELLED);
         }
 
         @Test @DisplayName("already cancelled → BusinessException")

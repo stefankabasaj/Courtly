@@ -5,6 +5,8 @@ import com.stefankabasaj.courtly.dto.request.PaymentRequest;
 import com.stefankabasaj.courtly.dto.response.PaymentResponse;
 import com.stefankabasaj.courtly.entity.Booking;
 import com.stefankabasaj.courtly.entity.Payment;
+import com.stefankabasaj.courtly.event.BookingEventRecorder;
+import com.stefankabasaj.courtly.event.BookingEventType;
 import com.stefankabasaj.courtly.exception.BusinessException;
 import com.stefankabasaj.courtly.exception.ConflictException;
 import com.stefankabasaj.courtly.exception.ResourceNotFoundException;
@@ -28,9 +30,10 @@ public class PaymentService {
     // fake gateway - succeeds 90% of the time. real version would call Stripe here
     private static final double SUCCESS_RATE = 0.9;
 
-    private final PaymentRepository paymentRepository;
-    private final BookingRepository bookingRepository;
-    private final BookingProperties bookingProperties;
+    private final PaymentRepository    paymentRepository;
+    private final BookingRepository    bookingRepository;
+    private final BookingProperties    bookingProperties;
+    private final BookingEventRecorder events;
 
     @Transactional
     public PaymentResponse processPayment(UUID bookingId, UUID payerId, PaymentRequest request) {
@@ -76,6 +79,7 @@ public class PaymentService {
             payment.setFailureReason(null);
             booking.setStatus(Booking.BookingStatus.CONFIRMED);
             bookingRepository.save(booking);
+            events.record(booking, BookingEventType.BOOKING_CONFIRMED);
             log.info("Payment SUCCESS bookingId={} amount={}", bookingId, payment.getAmount());
         } else {
             payment.setStatus(Payment.PaymentStatus.FAILED);

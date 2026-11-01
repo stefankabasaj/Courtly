@@ -28,9 +28,15 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
-          cache-dependency-path: Courtly/pom.xml
+          cache-dependency-path: |
+            Courtly/pom.xml
+            Courtly/notification-service/pom.xml
 
       - name: Run tests
+        run: ./mvnw test -B --no-transfer-progress
+
+      - name: Run notification service tests
+        working-directory: Courtly/notification-service
         run: ./mvnw test -B --no-transfer-progress
 
       - name: Build JAR
@@ -41,14 +47,16 @@ jobs:
         if: always()
         with:
           name: test-results
-          path: Courtly/target/surefire-reports/
+          path: |
+            Courtly/target/surefire-reports/
+            Courtly/notification-service/target/surefire-reports/
           retention-days: 7
 
       - name: Build Docker image
         run: docker build -t courtly:${{ github.sha }} .
 
   smoke-test:
-    name: Smoke test (app + PostgreSQL)
+    name: Smoke test (full stack)
     runs-on: ubuntu-latest
     needs: build-and-test
 
@@ -60,6 +68,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      # runs the real migrations against PostgreSQL and checks the main flows over HTTP
+      # the whole docker compose stack: real PostgreSQL migrations, Redis, Kafka,
+      # both app replicas behind nginx, and the emails in Mailpit
       - name: Run smoke test
         run: ./scripts/smoke-test.sh

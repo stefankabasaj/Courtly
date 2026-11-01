@@ -94,6 +94,24 @@ The grid is built from one query for the whole day. A slot is taken if any PENDI
 
 Exceptions thrown inside the Spring Security filter chain never reach `GlobalExceptionHandler`. `ApiSecurityErrorHandler` is wired in as the entry point and access-denied handler so 401 and 403 have the same JSON shape as every other error. Without a custom entry point Spring answers unauthenticated requests with 403.
 
+## Booking emails through Kafka and an outbox
+
+When a booking is created, confirmed, cancelled or expires, the player gets an email. That's done by a separate `notification-service` reading events from Kafka, not by the API itself: sending email is slow and fails in its own ways, and none of that should hold up or break a booking.
+
+The tricky part is getting the event out reliably. Sending to Kafka straight from `BookingService` has two holes: the transaction can roll back after the send (an email about a booking that never happened), or the app can die between commit and send (a booking nobody hears about). So events go into an `outbox_events` table in the same transaction as the booking change (`BookingEventRecorder`, `Propagation.MANDATORY` so it can't be called outside one). `OutboxPublisher` sends unpublished rows to Kafka every second and marks them after Kafka acks.
+
+That's at-least-once: a crash between the ack and the mark sends the event again. The notification service remembers sent event ids in Redis and skips repeats. It checks, sends, then marks - a crash in the middle means one duplicate email rather than a lost one.
+
+Ordering: with two API instances, each publishing its own batch, a booking's CONFIRMED could overtake its CREATED. A Postgres advisory lock lets only one instance publish at a time, oldest first, and events are keyed by booking id, so each booking's events stay in one partition, in order.
+
+Failures on the consumer side: a send that fails (mail server down) is retried 3 times, then parked in `courtly.booking-events.DLT` so it doesn't block everything behind it. Broken JSON skips the retries. Unknown event types are ignored, so the API can add one before the notification service knows about it.
+
+The event JSON is the contract. Each service has its own copy of the record instead of a shared library, so they can be deployed separately; fields can be added, not renamed or removed.
+
+`BookingExpiryJob` used to be one bulk `UPDATE`. It needs to know which bookings it expired now, to record their events, so it locks them with `SELECT ... FOR UPDATE SKIP LOCKED` and updates them one by one. Both instances can run it at the same time and still each booking expires - and gets its email - once.
+
+Why Kafka and not RabbitMQ, which is honestly the more natural fit for "send an email when X happens": events stay in the topic after they're read, so a second consumer (stats, a calendar sync) can be added later and read the same history. That, and Kafka is what I wanted to learn.
+
 ## Local time, not UTC
 
 Bookings are wall-clock times at the courts - "10:00" means 10:00 there, whatever zone the server is in. They're stored as plain `TIMESTAMP` / `LocalDateTime`, so `LocalDateTime.now()` has to be in the courts' zone too. Docker containers default to UTC, which put "now" 1-2 hours behind Belgrade: the 2-hour cancel rule and the "this slot is in the past" check were off by that much. `CourtlyApplication` sets the JVM default zone from `APP_TIMEZONE` (default `Europe/Belgrade`) before Spring starts.
