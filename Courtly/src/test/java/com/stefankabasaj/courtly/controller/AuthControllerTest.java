@@ -1,6 +1,7 @@
 package com.stefankabasaj.courtly.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.stefankabasaj.courtly.config.SecurityConfig;
 import com.stefankabasaj.courtly.dto.request.LoginRequest;
 import com.stefankabasaj.courtly.dto.request.RegisterRequest;
 import com.stefankabasaj.courtly.dto.response.AuthResponse;
@@ -14,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -27,6 +29,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @ActiveProfiles("test")
 @WebMvcTest(AuthController.class)
+// load the real security rules, otherwise the slice runs Spring's default chain (CSRF on, everything locked)
+@Import(SecurityConfig.class)
 @DisplayName("AuthController")
 class AuthControllerTest {
 
@@ -103,5 +107,27 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isUnprocessableEntity());
+    }
+
+    @Test
+    @DisplayName("POST /auth/register - 400 when the body is not valid JSON")
+    void register_malformedJson_returns400() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{not json"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("POST /auth/register - 422 when password is too long for BCrypt")
+    void register_passwordTooLong_returns422() throws Exception {
+        RegisterRequest req = new RegisterRequest("stefan@courtly.com", "a".repeat(73));
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.fieldErrors.password").exists());
     }
 }

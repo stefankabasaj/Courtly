@@ -1,5 +1,9 @@
 name: CI
 
+# The Maven project lives in the Courtly/ subfolder. GitHub only runs workflows
+# from the repository root's .github/workflows, so this file has to live here
+# (it used to sit in Courtly/.github and never ran).
+
 on:
   push:
     branches: [ main, develop ]
@@ -11,6 +15,10 @@ jobs:
     name: Build & Test
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: Courtly
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -21,6 +29,7 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
+          cache-dependency-path: Courtly/pom.xml
 
       - name: Run tests
         run: ./mvnw test -B --no-transfer-progress
@@ -33,7 +42,7 @@ jobs:
         if: always()
         with:
           name: test-results
-          path: target/surefire-reports/
+          path: Courtly/target/surefire-reports/
           retention-days: 7
 
       - name: Build Docker image

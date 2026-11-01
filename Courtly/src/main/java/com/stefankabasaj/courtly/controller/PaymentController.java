@@ -29,8 +29,11 @@ public class PaymentController {
                 paymentService.processPayment(bookingId, principal.userId(), request));
     }
 
+    // only the booking's owner or an admin - checked in the service
     @GetMapping("/booking/{bookingId}")
-    public ResponseEntity<PaymentResponse> getByBooking(@PathVariable UUID bookingId) {
-        return ResponseEntity.ok(paymentService.getPaymentByBookingId(bookingId));
+    public ResponseEntity<PaymentResponse> getByBooking(
+            @PathVariable UUID bookingId,
+            @AuthenticationPrincipal AuthenticatedUser principal) {
+        return ResponseEntity.ok(paymentService.getPaymentByBookingId(bookingId, principal));
     }
 }

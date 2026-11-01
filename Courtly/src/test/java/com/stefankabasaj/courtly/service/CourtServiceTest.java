@@ -96,4 +96,34 @@ class CourtServiceTest {
         assertThat(result).hasSize(1);
         assertThat(result.get(0).active()).isTrue();
     }
+
+    @Test
+    @DisplayName("updateCourt - taking another court's name throws ConflictException")
+    void update_nameTaken_throws() {
+        Court court = buildCourt(true);
+        when(courtRepository.findById(court.getId())).thenReturn(Optional.of(court));
+        when(courtRepository.existsByNameAndIdNot("Court B", court.getId())).thenReturn(true);
+
+        assertThatThrownBy(() -> courtService.updateCourt(court.getId(),
+                new CourtRequest("Court B", Court.Surface.CLAY, new BigDecimal("25.00"))))
+                .isInstanceOf(ConflictException.class);
+
+        verify(courtRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("updateCourt - keeps its own name and updates the price")
+    void update_sameName_success() {
+        Court court = buildCourt(true);
+        when(courtRepository.findById(court.getId())).thenReturn(Optional.of(court));
+        when(courtRepository.existsByNameAndIdNot("Court A", court.getId())).thenReturn(false);
+        when(courtRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        CourtResponse resp = courtService.updateCourt(court.getId(),
+                new CourtRequest("  Court A ", Court.Surface.HARD, new BigDecimal("30.00")));
+
+        assertThat(resp.name()).isEqualTo("Court A");
+        assertThat(resp.surface()).isEqualTo("HARD");
+        assertThat(resp.pricePerHour()).isEqualByComparingTo("30.00");
+    }
 }

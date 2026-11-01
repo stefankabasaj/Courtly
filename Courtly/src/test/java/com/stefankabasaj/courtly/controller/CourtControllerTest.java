@@ -1,6 +1,7 @@
 package com.stefankabasaj.courtly.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.stefankabasaj.courtly.config.SecurityConfig;
 import com.stefankabasaj.courtly.dto.request.CourtRequest;
 import com.stefankabasaj.courtly.dto.response.CourtResponse;
 import com.stefankabasaj.courtly.entity.Court;
@@ -14,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
@@ -30,6 +32,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @ActiveProfiles("test")
 @WebMvcTest(CourtController.class)
+// load the real security rules, otherwise the slice runs Spring's default chain (CSRF on, everything locked)
+@Import(SecurityConfig.class)
 @DisplayName("CourtController")
 class CourtControllerTest {
 
@@ -58,7 +62,9 @@ class CourtControllerTest {
     @DisplayName("GET /courts - 401 without auth")
     void getAll_noAuth_returns401() throws Exception {
         mockMvc.perform(get("/api/v1/courts"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.path").value("/api/v1/courts"));
     }
 
     @Test
@@ -84,7 +90,8 @@ class CourtControllerTest {
         mockMvc.perform(post("/api/v1/courts").with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403));
     }
 
     @Test

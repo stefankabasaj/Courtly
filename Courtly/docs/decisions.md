@@ -41,17 +41,28 @@ Picked 2 hours arbitrarily. Felt right for a tennis venue - enough time to poten
 
 Default is 10. Each strength level doubles the time. 12 takes about 250ms per hash. Slow enough that GPU brute force is impractical, fast enough that nobody complains about login time.
 
-## Partial unique index for double-booking
+## Exclusion constraint for double-booking
 
 The application checks for overlaps before saving and gives a clean error message. But two requests at the exact same millisecond can both pass that check.
 
+V1 added a partial unique index on `(court_id, start_time, end_time)`. That only rejects two bookings with the *same* start and end - 10:00-12:00 and 11:00-13:00 on the same court both got through. V2 replaces it with a PostgreSQL exclusion constraint:
+
 ```sql
-CREATE UNIQUE INDEX idx_bookings_no_overlap
-    ON courtly.bookings (court_id, start_time, end_time)
-    WHERE status <> 'CANCELLED';
+ALTER TABLE courtly.bookings
+    ADD CONSTRAINT excl_bookings_no_overlap
+    EXCLUDE USING gist (court_id WITH =, tsrange(start_time, end_time) WITH &&)
+    WHERE (status <> 'CANCELLED');
 ```
 
-If both requests slip through the app check, the database rejects the second one. The `WHERE` clause means cancelled bookings free up the slot.
+If two requests slip through the app check, the database rejects the second one and the API answers 409. Ranges are half-open, so back-to-back slots are fine, and the `WHERE` clause means cancelled bookings free up the slot. It needs the `btree_gist` extension, which V2 creates.
+
+## Failed payments can be retried
+
+A booking has at most one payment row. If the (simulated) gateway declines, the row is kept as FAILED and the next attempt reuses it, so the booking is never stuck in PENDING. Once a payment is SUCCESS the booking is CONFIRMED and further attempts are rejected.
+
+## JSON errors from the security layer
+
+Exceptions thrown inside the Spring Security filter chain never reach `GlobalExceptionHandler`. `ApiSecurityErrorHandler` is wired in as the entry point and access-denied handler so 401 and 403 have the same JSON shape as every other error. Without a custom entry point Spring answers unauthenticated requests with 403.
 
 ## BookingValidator as a separate class
 

@@ -21,6 +21,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -56,7 +57,7 @@ public class BookingService {
         bookingValidator.validateBookingTimes(request.startTime(), request.endTime());
 
         // app-level check first for a clean error message.
-        // the partial unique index in the DB catches the race-condition case
+        // the exclusion constraint in the DB (V2 migration) catches the race-condition case
         if (bookingRepository.existsOverlappingBooking(
                 request.courtId(), request.startTime(), request.endTime())) {
             throw new ConflictException(
@@ -94,10 +95,9 @@ public class BookingService {
     public BookingResponse getBookingById(UUID bookingId, AuthenticatedUser principal) {
         Booking booking = findOrThrow(bookingId);
 
-        // admins see everything, normal users only their own
-        boolean isAdmin = "ADMIN".equals(principal.role());
-        if (!isAdmin && !booking.getUser().getId().equals(principal.userId())) {
-            // 404 not 403 on purpose - 403 would leak that the booking exists
+        // admins see everything, normal users only their own.
+        // 404 not 403 on purpose - 403 would leak that the booking exists
+        if (!principal.canAccess(booking.getUser().getId())) {
             throw new ResourceNotFoundException("Booking", bookingId);
         }
 
@@ -110,8 +110,9 @@ public class BookingService {
         log.info("User {} cancelling booking {}", userId, bookingId);
         Booking booking = findOrThrow(bookingId);
 
+        // 404 not 400/403 - same reasoning as getBookingById, don't reveal other people's bookings
         if (!booking.getUser().getId().equals(userId)) {
-            throw new BusinessException("You can only cancel your own bookings.");
+            throw new ResourceNotFoundException("Booking", bookingId);
         }
         if (booking.getStatus() == Booking.BookingStatus.CANCELLED) {
             throw new BusinessException("This booking is already cancelled.");
@@ -121,7 +122,7 @@ public class BookingService {
             throw new BusinessException(
                     "Paid bookings cannot be cancelled through the app. Please contact support.");
         }
-        if (LocalDateTime.now().plusHours(CANCEL_NOTICE_HOURS).isAfter(booking.getStartTime())) {
+        if (!hasEnoughNoticeToCancel(booking)) {
             throw new BusinessException(
                     "Bookings must be cancelled at least " + CANCEL_NOTICE_HOURS +
                     " hours in advance.");
@@ -129,8 +130,8 @@ public class BookingService {
 
         booking.setStatus(Booking.BookingStatus.CANCELLED);
         booking.setCancellationReason(
-                request != null && request.reason() != null
-                        ? request.reason()
+                request != null && StringUtils.hasText(request.reason())
+                        ? request.reason().trim()
                         : "Cancelled by user");
 
         log.info("Booking {} cancelled by user {}", bookingId, userId);
@@ -165,10 +166,15 @@ public class BookingService {
                 .orElseThrow(() -> new ResourceNotFoundException("Booking", id));
     }
 
+    // one rule for both "can this be cancelled?" (the response flag) and the actual
+    // cancel - they used to disagree at exactly CANCEL_NOTICE_HOURS before the start
+    private boolean hasEnoughNoticeToCancel(Booking booking) {
+        return !LocalDateTime.now().plusHours(CANCEL_NOTICE_HOURS).isAfter(booking.getStartTime());
+    }
+
     boolean isCancellable(Booking booking) {
         return booking.getStatus() == Booking.BookingStatus.PENDING
-                && LocalDateTime.now().plusHours(CANCEL_NOTICE_HOURS)
-                        .isBefore(booking.getStartTime());
+                && hasEnoughNoticeToCancel(booking);
     }
 
     BookingResponse toResponse(Booking b) {

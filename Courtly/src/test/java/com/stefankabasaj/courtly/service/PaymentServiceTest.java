@@ -11,6 +11,7 @@ import com.stefankabasaj.courtly.exception.ConflictException;
 import com.stefankabasaj.courtly.exception.ResourceNotFoundException;
 import com.stefankabasaj.courtly.repository.BookingRepository;
 import com.stefankabasaj.courtly.repository.PaymentRepository;
+import com.stefankabasaj.courtly.security.AuthenticatedUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.springframework.test.context.ActiveProfiles;
@@ -69,7 +70,7 @@ class PaymentServiceTest {
     }
 
     @Test
-    @DisplayName("wrong owner throws BusinessException")
+    @DisplayName("wrong owner gets 404, not a hint that the booking exists")
     void wrongOwner_throws() {
         when(bookingRepository.findByIdWithDetails(pendingBooking.getId()))
                 .thenReturn(Optional.of(pendingBooking));
@@ -77,8 +78,9 @@ class PaymentServiceTest {
         UUID differentUser = UUID.randomUUID();
         assertThatThrownBy(() -> paymentService.processPayment(
                 pendingBooking.getId(), differentUser, new PaymentRequest("CREDIT_CARD")))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("can only pay");
+                .isInstanceOf(ResourceNotFoundException.class);
+
+        verify(paymentRepository, never()).save(any());
     }
 
     @Test
@@ -99,8 +101,8 @@ class PaymentServiceTest {
     void alreadyPaid_throws() {
         when(bookingRepository.findByIdWithDetails(pendingBooking.getId()))
                 .thenReturn(Optional.of(pendingBooking));
-        when(paymentRepository.existsByBookingId(pendingBooking.getId()))
-                .thenReturn(true);
+        when(paymentRepository.findByBookingId(pendingBooking.getId()))
+                .thenReturn(Optional.of(paymentWithStatus(Payment.PaymentStatus.SUCCESS)));
 
         assertThatThrownBy(() -> paymentService.processPayment(
                 pendingBooking.getId(), user.getId(), new PaymentRequest("CREDIT_CARD")))
@@ -113,9 +115,9 @@ class PaymentServiceTest {
     void processPayment_returnsResult() {
         when(bookingRepository.findByIdWithDetails(pendingBooking.getId()))
                 .thenReturn(Optional.of(pendingBooking));
-        when(paymentRepository.existsByBookingId(pendingBooking.getId()))
-                .thenReturn(false);
-        when(bookingRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(paymentRepository.findByBookingId(pendingBooking.getId()))
+                .thenReturn(Optional.empty());
+        lenient().when(bookingRepository.save(any())).thenAnswer(i -> i.getArgument(0));
         when(paymentRepository.save(any())).thenAnswer(i -> {
             Payment p = i.getArgument(0);
             p.setBooking(pendingBooking);
@@ -129,5 +131,76 @@ class PaymentServiceTest {
         assertThat(resp.amount()).isEqualByComparingTo("50.00");
         assertThat(resp.status()).isIn("SUCCESS", "FAILED");
         assertThat(resp.paymentMethod()).isEqualTo("CREDIT_CARD");
+    }
+
+    private Payment paymentWithStatus(Payment.PaymentStatus status) {
+        return Payment.builder().id(UUID.randomUUID()).booking(pendingBooking)
+                .amount(new BigDecimal("50.00")).paymentMethod("CREDIT_CARD")
+                .status(status).failureReason(status == Payment.PaymentStatus.FAILED ? "Card declined" : null)
+                .build();
+    }
+
+    @Test
+    @DisplayName("retry after a FAILED payment reuses the same payment row")
+    void retryAfterFailure_reusesPayment() {
+        Payment failed = paymentWithStatus(Payment.PaymentStatus.FAILED);
+        when(bookingRepository.findByIdWithDetails(pendingBooking.getId()))
+                .thenReturn(Optional.of(pendingBooking));
+        when(paymentRepository.findByBookingId(pendingBooking.getId()))
+                .thenReturn(Optional.of(failed));
+        lenient().when(bookingRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(paymentRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        PaymentResponse resp = paymentService.processPayment(
+                pendingBooking.getId(), user.getId(), new PaymentRequest("DEBIT_CARD"));
+
+        assertThat(resp.id()).isEqualTo(failed.getId());
+        assertThat(resp.paymentMethod()).isEqualTo("DEBIT_CARD");
+        assertThat(resp.status()).isIn("SUCCESS", "FAILED");
+        // a retry must never leave a stale failure reason on a successful payment
+        if (resp.status().equals("SUCCESS")) {
+            assertThat(resp.failureReason()).isNull();
+        }
+    }
+
+    @Test
+    @DisplayName("getPayment - owner can read it")
+    void getPayment_owner() {
+        when(bookingRepository.findByIdWithDetails(pendingBooking.getId()))
+                .thenReturn(Optional.of(pendingBooking));
+        when(paymentRepository.findByBookingId(pendingBooking.getId()))
+                .thenReturn(Optional.of(paymentWithStatus(Payment.PaymentStatus.SUCCESS)));
+
+        PaymentResponse resp = paymentService.getPaymentByBookingId(
+                pendingBooking.getId(), new AuthenticatedUser(user.getId(), user.getEmail(), "USER"));
+
+        assertThat(resp.bookingId()).isEqualTo(pendingBooking.getId());
+    }
+
+    @Test
+    @DisplayName("getPayment - admin can read anyone's")
+    void getPayment_admin() {
+        when(bookingRepository.findByIdWithDetails(pendingBooking.getId()))
+                .thenReturn(Optional.of(pendingBooking));
+        when(paymentRepository.findByBookingId(pendingBooking.getId()))
+                .thenReturn(Optional.of(paymentWithStatus(Payment.PaymentStatus.SUCCESS)));
+
+        PaymentResponse resp = paymentService.getPaymentByBookingId(
+                pendingBooking.getId(), new AuthenticatedUser(UUID.randomUUID(), "admin@courtly.com", "ADMIN"));
+
+        assertThat(resp.bookingId()).isEqualTo(pendingBooking.getId());
+    }
+
+    @Test
+    @DisplayName("getPayment - another user gets 404")
+    void getPayment_otherUser() {
+        when(bookingRepository.findByIdWithDetails(pendingBooking.getId()))
+                .thenReturn(Optional.of(pendingBooking));
+
+        AuthenticatedUser stranger = new AuthenticatedUser(UUID.randomUUID(), "other@courtly.com", "USER");
+
+        assertThatThrownBy(() -> paymentService.getPaymentByBookingId(pendingBooking.getId(), stranger))
+                .isInstanceOf(ResourceNotFoundException.class);
+        verify(paymentRepository, never()).findByBookingId(any());
     }
 }

@@ -1,5 +1,7 @@
 package com.stefankabasaj.courtly.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.stefankabasaj.courtly.security.ApiSecurityErrorHandler;
 import com.stefankabasaj.courtly.security.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -25,7 +27,10 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthFilter;
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain filterChain(HttpSecurity http, ObjectMapper objectMapper) throws Exception {
+        // JSON bodies for 401/403 raised inside the filter chain
+        var errorHandler = new ApiSecurityErrorHandler(objectMapper);
+
         return http
                 // JWT lives in the Authorization header, not a cookie, so CSRF doesn't apply
                 .csrf(AbstractHttpConfigurer::disable)
@@ -39,6 +44,11 @@ public class SecurityConfig {
                         .contentTypeOptions(cto -> {})
                         .referrerPolicy(rp -> rp.policy(
                                 ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
+                )
+
+                .exceptionHandling(e -> e
+                        .authenticationEntryPoint(errorHandler)
+                        .accessDeniedHandler(errorHandler)
                 )
 
                 .authorizeHttpRequests(auth -> auth

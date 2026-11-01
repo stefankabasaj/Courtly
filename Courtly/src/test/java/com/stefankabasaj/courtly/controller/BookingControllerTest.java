@@ -1,6 +1,7 @@
 package com.stefankabasaj.courtly.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.stefankabasaj.courtly.config.SecurityConfig;
 import com.stefankabasaj.courtly.dto.request.BookingRequest;
 import com.stefankabasaj.courtly.dto.response.BookingResponse;
 import com.stefankabasaj.courtly.dto.response.PageResponse;
@@ -16,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -35,6 +37,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @ActiveProfiles("test")
 @WebMvcTest(BookingController.class)
+// load the real security rules, otherwise the slice runs Spring's default chain (CSRF on, everything locked)
+@Import(SecurityConfig.class)
 @DisplayName("BookingController")
 class BookingControllerTest {
 

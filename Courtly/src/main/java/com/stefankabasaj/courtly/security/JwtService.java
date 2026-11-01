@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
+import java.util.Optional;
 import java.util.UUID;
 
 @Slf4j
@@ -45,33 +46,31 @@ public class JwtService {
                 .compact();
     }
 
-    public Claims extractAllClaims(String token) {
-        return Jwts.parser()
-                .verifyWith(secretKey)
-                .build()
-                .parseSignedClaims(token)
-                .getPayload();
-    }
-
-    public UUID extractUserId(String token) {
-        return UUID.fromString(extractAllClaims(token).get(CLAIM_USER_ID, String.class));
-    }
-
-    public String extractEmail(String token) {
-        return extractAllClaims(token).getSubject();
-    }
-
-    public String extractRole(String token) {
-        return extractAllClaims(token).get(CLAIM_ROLE, String.class);
-    }
-
-    public boolean isValid(String token) {
+    /**
+     * Verifies the signature and expiry, and returns the user the token was issued for.
+     * Empty for anything that isn't a valid token of ours - bad signature, expired,
+     * malformed, or missing the claims we rely on. Parses the token once.
+     */
+    public Optional<AuthenticatedUser> parseToken(String token) {
         try {
-            extractAllClaims(token);
-            return true;
+            Claims claims = Jwts.parser()
+                    .verifyWith(secretKey)
+                    .build()
+                    .parseSignedClaims(token)
+                    .getPayload();
+
+            String userId = claims.get(CLAIM_USER_ID, String.class);
+            String role   = claims.get(CLAIM_ROLE, String.class);
+            if (userId == null || role == null) {
+                log.warn("JWT rejected: missing userId or role claim");
+                return Optional.empty();
+            }
+
+            return Optional.of(new AuthenticatedUser(
+                    UUID.fromString(userId), claims.getSubject(), role));
         } catch (JwtException | IllegalArgumentException e) {
-            log.warn("JWT validation failed: {}", e.getMessage());
-            return false;
+            log.warn("JWT rejected: {}", e.getMessage());
+            return Optional.empty();
         }
     }
 }

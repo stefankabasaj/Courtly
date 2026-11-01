@@ -215,7 +215,7 @@ class BookingServiceTest {
             assertThat(resp.cancellationReason()).isEqualTo("Too busy");
         }
 
-        @Test @DisplayName("non-owner cannot cancel → BusinessException")
+        @Test @DisplayName("non-owner cannot cancel → 404")
         void nonOwner() {
             Booking booking = buildBooking(Booking.BookingStatus.PENDING);
             when(bookingRepository.findByIdWithDetails(booking.getId()))
@@ -223,8 +223,44 @@ class BookingServiceTest {
 
             assertThatThrownBy(() -> bookingService.cancelBooking(
                     booking.getId(), UUID.randomUUID(), null))
+                    .isInstanceOf(ResourceNotFoundException.class);
+            verify(bookingRepository, never()).save(any());
+        }
+
+        @Test @DisplayName("blank reason falls back to the default")
+        void blankReason() {
+            Booking booking = buildBooking(Booking.BookingStatus.PENDING);
+            when(bookingRepository.findByIdWithDetails(booking.getId()))
+                    .thenReturn(Optional.of(booking));
+            when(bookingRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+            BookingResponse resp = bookingService.cancelBooking(
+                    booking.getId(), user.getId(), new CancelBookingRequest("   "));
+
+            assertThat(resp.cancellationReason()).isEqualTo("Cancelled by user");
+        }
+
+        @Test @DisplayName("less than 2h before the start → BusinessException")
+        void tooLate() {
+            Booking booking = buildBooking(Booking.BookingStatus.PENDING);
+            booking.setStartTime(LocalDateTime.now().plusMinutes(30));
+            when(bookingRepository.findByIdWithDetails(booking.getId()))
+                    .thenReturn(Optional.of(booking));
+
+            assertThatThrownBy(() -> bookingService.cancelBooking(
+                    booking.getId(), user.getId(), null))
                     .isInstanceOf(BusinessException.class)
-                    .hasMessageContaining("only cancel your own");
+                    .hasMessageContaining("hours in advance");
+        }
+
+        @Test @DisplayName("cancellable flag agrees with the cancel rule")
+        void cancellableFlag() {
+            Booking far  = buildBooking(Booking.BookingStatus.PENDING);
+            Booking soon = buildBooking(Booking.BookingStatus.PENDING);
+            soon.setStartTime(LocalDateTime.now().plusMinutes(30));
+
+            assertThat(bookingService.isCancellable(far)).isTrue();
+            assertThat(bookingService.isCancellable(soon)).isFalse();
         }
 
         @Test @DisplayName("CONFIRMED booking cannot be self-cancelled")

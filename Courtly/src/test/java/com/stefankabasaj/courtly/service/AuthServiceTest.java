@@ -5,6 +5,7 @@ import com.stefankabasaj.courtly.dto.request.RegisterRequest;
 import com.stefankabasaj.courtly.dto.response.AuthResponse;
 import com.stefankabasaj.courtly.dto.response.UserResponse;
 import com.stefankabasaj.courtly.entity.User;
+import com.stefankabasaj.courtly.exception.BusinessException;
 import com.stefankabasaj.courtly.exception.ConflictException;
 import com.stefankabasaj.courtly.repository.UserRepository;
 import com.stefankabasaj.courtly.security.JwtService;
@@ -106,6 +107,54 @@ class AuthServiceTest {
 
         assertThatThrownBy(() -> authService.login(
                 new LoginRequest("nobody@courtly.com", "Password1!")))
+                .isInstanceOf(BadCredentialsException.class);
+    }
+
+    @Test
+    @DisplayName("login - email is normalised (case, spaces)")
+    void login_normalisesEmail() {
+        User user = User.builder()
+                .id(UUID.randomUUID()).email("stefan@courtly.com")
+                .passwordHash("hashed").role(User.Role.USER).active(true).build();
+
+        when(userRepository.findByEmail("stefan@courtly.com")).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("Password1!", "hashed")).thenReturn(true);
+        when(jwtService.generateToken(any(), any(), any())).thenReturn("jwt.token.here");
+
+        AuthResponse resp = authService.login(
+                new LoginRequest("  Stefan@Courtly.COM ", "Password1!"));
+
+        assertThat(resp.email()).isEqualTo("stefan@courtly.com");
+    }
+
+    @Test
+    @DisplayName("login - deactivated account with the right password → BusinessException")
+    void login_deactivated_throws() {
+        User user = User.builder()
+                .id(UUID.randomUUID()).email("stefan@courtly.com")
+                .passwordHash("hashed").role(User.Role.USER).active(false).build();
+
+        when(userRepository.findByEmail("stefan@courtly.com")).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("Password1!", "hashed")).thenReturn(true);
+
+        assertThatThrownBy(() -> authService.login(
+                new LoginRequest("stefan@courtly.com", "Password1!")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("deactivated");
+    }
+
+    @Test
+    @DisplayName("login - deactivated account with a wrong password looks like any other bad login")
+    void login_deactivatedWrongPassword_doesNotRevealStatus() {
+        User user = User.builder()
+                .id(UUID.randomUUID()).email("stefan@courtly.com")
+                .passwordHash("hashed").role(User.Role.USER).active(false).build();
+
+        when(userRepository.findByEmail("stefan@courtly.com")).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("wrong", "hashed")).thenReturn(false);
+
+        assertThatThrownBy(() -> authService.login(
+                new LoginRequest("stefan@courtly.com", "wrong")))
                 .isInstanceOf(BadCredentialsException.class);
     }
 }

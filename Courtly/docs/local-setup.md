@@ -51,7 +51,7 @@ I use DataGrip but any client works.
 
 First migration creates an admin and four courts:
 
-- `admin@courtly.com` / `Admin123!`
+- `admin@courtly.com` / `Admin123!` (the V1 seed hash was wrong; V2 fixes it. Change this password before deploying anywhere public)
 - Court A - Clay (€25/h)
 - Court B - Grass (€30/h)
 - Court C - Hard (€20/h)

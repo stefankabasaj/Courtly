@@ -12,7 +12,7 @@ import java.util.UUID;
 @Table(
     name = "payments",
     schema = "courtly",
-    uniqueConstraints = @UniqueConstraint(name = "uq_payments_booking_id", columnNames = "booking_id")
+    uniqueConstraints = @UniqueConstraint(name = "uq_payments_booking", columnNames = "booking_id")
 )
 @Getter
 @Setter

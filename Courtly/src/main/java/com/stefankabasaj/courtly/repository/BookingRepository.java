@@ -36,8 +36,9 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
     List<Booking> findByUserIdWithDetails(@Param("userId") UUID userId);
 
     // Spring can't build the count query when JOIN FETCH is in play, so I give it one explicitly
+    // id as a tie-breaker so rows with equal createdAt can't shuffle between pages
     @Query(
-        value      = "SELECT b FROM Booking b JOIN FETCH b.user JOIN FETCH b.court ORDER BY b.createdAt DESC",
+        value      = "SELECT b FROM Booking b JOIN FETCH b.user JOIN FETCH b.court ORDER BY b.createdAt DESC, b.id",
         countQuery = "SELECT COUNT(b) FROM Booking b"
     )
     Page<Booking> findAllWithDetails(Pageable pageable);

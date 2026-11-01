@@ -63,9 +63,8 @@ public class CourtService {
 
         Court court = findOrThrow(id);
 
-        // only worry about name clashes if the name actually changed
-        if (!court.getName().equalsIgnoreCase(name) &&
-                courtRepository.existsByNameAndIdNot(name, id)) {
+        // a court may keep its own name, but not take another court's
+        if (courtRepository.existsByNameAndIdNot(name, id)) {
             throw new ConflictException("A court named '" + name + "' already exists.");
         }
 

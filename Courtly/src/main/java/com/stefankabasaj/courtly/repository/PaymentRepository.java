@@ -19,6 +19,4 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
         WHERE p.booking.id = :bookingId
         """)
     Optional<Payment> findByBookingId(@Param("bookingId") UUID bookingId);
-
-    boolean existsByBookingId(UUID bookingId);
 }

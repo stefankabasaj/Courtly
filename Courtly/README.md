@@ -78,3 +78,23 @@ All protected endpoints need `Authorization: Bearer <token>`.
 | GET | `/api/v1/bookings/{id}` | user/admin | users see own only |
 | PATCH | `/api/v1/bookings/{id}/cancel` | user | 2h notice, PENDING only |
 | DELETE | `/api/v1/bookings/{id}/admin-cancel` | admin | reason required |
+
+
+### Payments
+
+
+| Method | Path | Who | Notes |
+|---|---|---|---|
+| POST | `/api/v1/payments/{bookingId}` | booking owner | PENDING bookings only. A declined payment can be retried |
+| GET | `/api/v1/payments/booking/{bookingId}` | booking owner / admin | 404 for anyone else |
+
+
+The payment gateway is simulated and approves about 90% of payments.
+
+
+### Errors
+
+
+Every error, including 401 and 403 from the security layer, has the same JSON shape:
+`status`, `error`, `message`, `path`, `timestamp`, and `fieldErrors` for validation failures (422).
+Missing or invalid token: 401. Valid token without the required role: 403.

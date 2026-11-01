@@ -16,6 +16,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Locale;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -48,17 +50,18 @@ public class AuthService {
     @Transactional(readOnly = true)
     public AuthResponse login(LoginRequest request) {
         String email = normalize(request.email());
-        log.info("Login attempt email={}", email);
+        log.debug("Login attempt email={}", email);
 
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new BadCredentialsException("Invalid email or password"));
 
-        if (!user.isActive()) {
-            throw new BusinessException("This account has been deactivated. Please contact support.");
-        }
-
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             throw new BadCredentialsException("Invalid email or password");
+        }
+
+        // after the password check, so only the account owner learns it was deactivated
+        if (!user.isActive()) {
+            throw new BusinessException("This account has been deactivated. Please contact support.");
         }
 
         String token = jwtService.generateToken(user.getId(), user.getEmail(), user.getRole().name());
@@ -67,8 +70,9 @@ public class AuthService {
     }
 
     // normalize so casing / stray spaces don't create duplicate accounts
+    // Locale.ROOT: the default locale breaks lowercasing (Turkish "I" becomes a dotless i)
     private String normalize(String email) {
-        return email.toLowerCase().trim();
+        return email.trim().toLowerCase(Locale.ROOT);
     }
 
     private UserResponse toResponse(User user) {

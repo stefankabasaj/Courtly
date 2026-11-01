@@ -9,14 +9,15 @@ import com.stefankabasaj.courtly.exception.ConflictException;
 import com.stefankabasaj.courtly.exception.ResourceNotFoundException;
 import com.stefankabasaj.courtly.repository.BookingRepository;
 import com.stefankabasaj.courtly.repository.PaymentRepository;
+import com.stefankabasaj.courtly.security.AuthenticatedUser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.Random;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Slf4j
 @Service
@@ -28,7 +29,6 @@ public class PaymentService {
 
     private final PaymentRepository paymentRepository;
     private final BookingRepository bookingRepository;
-    private final Random            random = new Random();
 
     @Transactional
     public PaymentResponse processPayment(UUID bookingId, UUID payerId, PaymentRequest request) {
@@ -38,9 +38,9 @@ public class PaymentService {
         Booking booking = bookingRepository.findByIdWithDetails(bookingId)
                 .orElseThrow(() -> new ResourceNotFoundException("Booking", bookingId));
 
-        // can't pay for someone else's booking
+        // can't pay for someone else's booking. 404 so we don't reveal it exists
         if (!booking.getUser().getId().equals(payerId)) {
-            throw new BusinessException("You can only pay for your own bookings.");
+            throw new ResourceNotFoundException("Booking", bookingId);
         }
 
         if (booking.getStatus() != Booking.BookingStatus.PENDING) {
@@ -49,28 +49,29 @@ public class PaymentService {
                     "Current status: " + booking.getStatus());
         }
 
-        // app check for a nice message, unique constraint is the real guarantee
-        if (paymentRepository.existsByBookingId(bookingId)) {
+        // a booking has at most one payment row (unique constraint). a FAILED one is
+        // reused for the retry, otherwise a declined card would lock the booking forever
+        Payment payment = paymentRepository.findByBookingId(bookingId).orElse(null);
+        if (payment != null && payment.getStatus() == Payment.PaymentStatus.SUCCESS) {
             throw new ConflictException("Payment has already been processed for this booking.");
         }
+        if (payment == null) {
+            payment = Payment.builder().booking(booking).build();
+        }
 
-        Payment payment = Payment.builder()
-                .booking(booking)
-                .amount(booking.getTotalPrice())
-                .paymentMethod(request.paymentMethod())
-                .status(Payment.PaymentStatus.PENDING)
-                .build();
+        payment.setAmount(booking.getTotalPrice());
+        payment.setPaymentMethod(request.paymentMethod());
+        payment.setProcessedAt(LocalDateTime.now());
 
-        if (random.nextDouble() < SUCCESS_RATE) {
+        if (ThreadLocalRandom.current().nextDouble() < SUCCESS_RATE) {
             payment.setStatus(Payment.PaymentStatus.SUCCESS);
-            payment.setProcessedAt(LocalDateTime.now());
+            payment.setFailureReason(null);
             booking.setStatus(Booking.BookingStatus.CONFIRMED);
             bookingRepository.save(booking);
             log.info("Payment SUCCESS bookingId={} amount={}", bookingId, payment.getAmount());
         } else {
             payment.setStatus(Payment.PaymentStatus.FAILED);
             payment.setFailureReason("Card declined (simulated)");
-            payment.setProcessedAt(LocalDateTime.now());
             log.warn("Payment FAILED bookingId={}", bookingId);
         }
 
@@ -78,7 +79,15 @@ public class PaymentService {
     }
 
     @Transactional(readOnly = true)
-    public PaymentResponse getPaymentByBookingId(UUID bookingId) {
+    public PaymentResponse getPaymentByBookingId(UUID bookingId, AuthenticatedUser principal) {
+        Booking booking = bookingRepository.findByIdWithDetails(bookingId)
+                .orElseThrow(() -> new ResourceNotFoundException("Booking", bookingId));
+
+        // payment details belong to the booking's owner (or an admin)
+        if (!principal.canAccess(booking.getUser().getId())) {
+            throw new ResourceNotFoundException("Booking", bookingId);
+        }
+
         Payment payment = paymentRepository.findByBookingId(bookingId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "No payment found for booking: " + bookingId));
