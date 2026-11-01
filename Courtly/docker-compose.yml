@@ -52,6 +52,11 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # topics only get created on purpose, by the services (KafkaConfig in both).
+      # left on, a consumer that starts first gets the topic auto-created with
+      # 1 partition, and the 3 the API asks for later never reach that consumer
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_NUM_PARTITIONS: 3
     # no volume, so a recreated Kafka container starts empty. fine for local dev -
     # anything the API hasn't sent yet is still waiting in the outbox table
     ports:

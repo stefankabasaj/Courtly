@@ -103,7 +103,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleParameterValidation(
             HandlerMethodValidationException ex, HttpServletRequest req) {
         Map<String, String> fieldErrors = new LinkedHashMap<>();
-        ex.getAllValidationResults().forEach(result -> result.getResolvableErrors().forEach(error ->
+        ex.getParameterValidationResults().forEach(result -> result.getResolvableErrors().forEach(error ->
                 fieldErrors.putIfAbsent(
                         result.getMethodParameter().getParameterName(),
                         error.getDefaultMessage() != null ? error.getDefaultMessage() : "Invalid value")));

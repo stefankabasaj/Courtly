@@ -106,6 +106,8 @@ Ordering: with two API instances, each publishing its own batch, a booking's CON
 
 Failures on the consumer side: a send that fails (mail server down) is retried 3 times, then parked in `courtly.booking-events.DLT` so it doesn't block everything behind it. Broken JSON skips the retries. Unknown event types are ignored, so the API can add one before the notification service knows about it.
 
+One thing that bit me: Kafka's auto-create. The notification service started first, subscribed to a topic that didn't exist yet, and Kafka created it with 1 partition. The API then asked for 3 and got them, but the consumer only knew about partition 0 - events keyed onto the other two never arrived. Auto-create is off now, and both services declare the topic the same way.
+
 The event JSON is the contract. Each service has its own copy of the record instead of a shared library, so they can be deployed separately; fields can be added, not renamed or removed.
 
 `BookingExpiryJob` used to be one bulk `UPDATE`. It needs to know which bookings it expired now, to record their events, so it locks them with `SELECT ... FOR UPDATE SKIP LOCKED` and updates them one by one. Both instances can run it at the same time and still each booking expires - and gets its email - once.

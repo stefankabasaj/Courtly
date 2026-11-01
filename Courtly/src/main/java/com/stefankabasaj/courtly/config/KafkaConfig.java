@@ -11,7 +11,8 @@ public class KafkaConfig {
 
     // created on startup if it doesn't exist. 3 partitions so a second consumer
     // instance would have work to share; events are keyed by booking id, so one
-    // booking's events always land in the same partition, in order
+    // booking's events always land in the same partition, in order.
+    // the notification service declares the same topic - keep the two in sync
     @Bean
     public NewTopic bookingEventsTopic(@Value("${app.events.topic}") String topic) {
         return TopicBuilder.name(topic).partitions(3).replicas(1).build();

@@ -15,6 +15,14 @@ import org.springframework.util.backoff.FixedBackOff;
 @Configuration
 public class KafkaConfig {
 
+    // the topic we read. the API declares the same one - whichever service starts
+    // first creates it, and both ask for the same 3 partitions. if only the API
+    // created it, this service could subscribe before it exists
+    @Bean
+    public NewTopic bookingEventsTopic(@Value("${app.events.topic}") String topic) {
+        return TopicBuilder.name(topic).partitions(3).replicas(1).build();
+    }
+
     // where messages go when they can't be handled. kept so nothing silently
     // disappears - they can be inspected and replayed by hand
     @Bean
