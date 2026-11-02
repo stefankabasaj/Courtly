@@ -108,8 +108,7 @@ public class PaymentService {
 
     private boolean isPaymentWindowExpired(Booking booking) {
         return booking.getCreatedAt() != null
-                && booking.getCreatedAt().plus(bookingProperties.paymentTimeout())
-                        .isBefore(LocalDateTime.now());
+                && bookingProperties.payBy(booking.getCreatedAt()).isBefore(LocalDateTime.now());
     }
 
     private PaymentResponse toResponse(Payment p) {

@@ -19,6 +19,7 @@ public record BookingResponse(
         String status,
         String cancellationReason,
         boolean cancellable,
+        LocalDateTime payBy,    // PENDING only - pay before this or the booking is cancelled
         LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {}

@@ -50,6 +50,8 @@ For more setup options see [docs/local-setup.md](docs/local-setup.md).
 
 All protected endpoints need `Authorization: Bearer <token>`.
 
+The full spec is generated from the code: Swagger UI at http://localhost:8080/swagger-ui.html, OpenAPI JSON at http://localhost:8080/v3/api-docs.
+
 Times are the courts' local time (`APP_TIMEZONE`, default `Europe/Belgrade`) and are sent without an offset, e.g. `2026-11-05T10:00:00`.
 
 
@@ -59,7 +61,8 @@ Times are the courts' local time (`APP_TIMEZONE`, default `Europe/Belgrade`) and
 | Method | Path | Returns |
 |---|---|---|
 | POST | `/api/v1/auth/register` | 201 user |
-| POST | `/api/v1/auth/login` | 200 + token |
+| POST | `/api/v1/auth/login` | 200 + token and `expiresAt` (UTC) |
+| GET | `/api/v1/users/me` | 200 the logged-in user |
 
 
 ### Courts
@@ -67,12 +70,13 @@ Times are the courts' local time (`APP_TIMEZONE`, default `Europe/Belgrade`) and
 
 | Method | Path | Who |
 |---|---|---|
-| GET | `/api/v1/courts` | any authenticated user |
+| GET | `/api/v1/courts` | any authenticated user (active courts; admins can add `?includeInactive=true`) |
 | GET | `/api/v1/courts/{id}` | any authenticated user |
 | GET | `/api/v1/courts/{id}/availability?date=YYYY-MM-DD` | any authenticated user (hourly slots, free or taken) |
 | POST | `/api/v1/courts` | admin |
 | PUT | `/api/v1/courts/{id}` | admin |
 | DELETE | `/api/v1/courts/{id}` | admin (soft delete) |
+| PATCH | `/api/v1/courts/{id}/activate` | admin (undo the delete) |
 
 
 ### Bookings
@@ -101,7 +105,7 @@ The payment gateway is simulated and approves about 90% of payments.
 
 Players get an email when a booking is created, confirmed, cancelled or released. Locally they land in Mailpit: http://localhost:8025.
 
-A booking has to be paid within `BOOKING_PAYMENT_TIMEOUT` (default 15 minutes). Unpaid bookings are then cancelled automatically with the reason `Not paid in time`, which frees the slot.
+A booking has to be paid within `BOOKING_PAYMENT_TIMEOUT` (default 15 minutes) - the deadline is `payBy` in the booking response. Unpaid bookings are then cancelled automatically with the reason `Not paid in time`, which frees the slot.
 
 
 ### Errors
@@ -109,6 +113,8 @@ A booking has to be paid within `BOOKING_PAYMENT_TIMEOUT` (default 15 minutes). 
 
 Every error, including 401 and 403 from the security layer, has the same JSON shape:
 `status`, `error`, `message`, `path`, `timestamp`, and `fieldErrors` for validation failures (422).
-Missing or invalid token: 401. Valid token without the required role: 403.
+Missing or invalid token: 401. Valid token without the required role: 403. Database or Redis down: 503.
+
+Fields that are null are left out of responses (e.g. `cancellationReason` on a booking that wasn't cancelled).
 
 After 5 failed logins for one email, or 20 from one IP, within 15 minutes, login answers 429 with a `Retry-After` header until the window ends. That includes the right password, so the limit can't be used to confirm a guess.

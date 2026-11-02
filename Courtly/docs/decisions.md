@@ -90,6 +90,17 @@ What had to change: the login counters (Redis, above). What didn't: sessions (th
 
 The grid is built from one query for the whole day. A slot is taken if any PENDING or CONFIRMED booking overlaps it, using the same half-open rule as the database constraint, and past slots are never free.
 
+## What the API gives a frontend
+
+A few things exist mainly so a frontend doesn't have to guess:
+
+- `payBy` on PENDING bookings, so it can show a countdown. Worked out in one place (`BookingProperties.payBy`) for the response, the email and the payment check.
+- `expiresAt` on login, so it knows when to send the user back to the login page instead of finding out from a 401. There are no refresh tokens - after 24h you log in again.
+- `GET /users/me`, for "who's logged in" after a page reload. It reads the DB, so a deactivated account shows as such even though its token still works.
+- An OpenAPI spec generated from the code (springdoc), so the client can be built from the real contract.
+
+CORS is off by default. In production the frontend and API sit behind one domain (nginx, or the frontend proxying `/api`), so the browser never makes a cross-origin call. `CORS_ALLOWED_ORIGINS` turns it on for local development with a frontend on another port. No credentials mode - the token goes in a header, never a cookie.
+
 ## JSON errors from the security layer
 
 Exceptions thrown inside the Spring Security filter chain never reach `GlobalExceptionHandler`. `ApiSecurityErrorHandler` is wired in as the entry point and access-denied handler so 401 and 403 have the same JSON shape as every other error. Without a custom entry point Spring answers unauthenticated requests with 403.

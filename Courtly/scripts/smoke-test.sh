@@ -32,6 +32,8 @@ export ADMIN_PASSWORD="$(openssl rand -hex 12)"
 # short enough not to drag the test out
 export BOOKING_PAYMENT_TIMEOUT=60s
 export BOOKING_EXPIRY_CHECK_INTERVAL_MS=2000
+# as if a frontend dev server ran on :3000
+export CORS_ALLOWED_ORIGINS=http://localhost:3000
 
 cleanup() {
     status=$?
@@ -147,6 +149,7 @@ expect 200 "admin logs in with ADMIN_PASSWORD" -X POST "$BASE/auth/login" \
     -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}"
 ADMIN_TOKEN=$(jq -r .token <<<"$RESPONSE")
 [ "$(jq -r .role <<<"$RESPONSE")" = "ADMIN" ] || fail "bootstrapped account is not ADMIN"
+[ "$(jq -r .expiresAt <<<"$RESPONSE")" != "null" ] || fail "login response has no expiresAt"
 
 expect 200 "list courts" "$BASE/courts" -H "Authorization: Bearer $ADMIN_TOKEN"
 COURT_ID=$(jq -r '.[0].id' <<<"$RESPONSE")
@@ -164,6 +167,9 @@ expect 200 "user login" -X POST "$BASE/auth/login" \
     -d "{\"email\":\"$EMAIL\",\"password\":\"Password1!\"}"
 USER_TOKEN=$(jq -r .token <<<"$RESPONSE")
 
+expect 200 "GET /users/me" "$BASE/users/me" -H "Authorization: Bearer $USER_TOKEN"
+[ "$(jq -r .email <<<"$RESPONSE")" = "$EMAIL" ] || fail "/users/me returned someone else"
+
 expect 403 "user cannot create courts" -X POST "$BASE/courts" \
     -H "Authorization: Bearer $USER_TOKEN" -H 'Content-Type: application/json' \
     -d '{"name":"Nope","surface":"CLAY","pricePerHour":10}'
@@ -174,6 +180,7 @@ DAY=$(date -u -d '+3 days' +%Y-%m-%d)
 SDAY=$(LC_ALL=C date -d "$DAY" '+%a %-d %b')
 book "book 10-12" 201 10 12
 BOOKING_ID=$(jq -r .id <<<"$RESPONSE")
+[ "$(jq -r .payBy <<<"$RESPONSE")" != "null" ] || fail "PENDING booking has no payBy"
 wait_for_mail "$EMAIL" "Booking received: $COURT_NAME, $SDAY 10:00" "booking email arrives"
 [ "$(jq -r .totalPrice <<<"$RESPONSE")" != "null" ] || fail "booking has no price"
 
@@ -310,6 +317,36 @@ RETRY_AFTER=$(curl -s -o /dev/null -D - -X POST "$BASE/auth/login" \
     -d "{\"email\":\"$BRUTE\",\"password\":\"Password1!\"}" | tr -d '\r' | awk -F': ' 'tolower($1)=="retry-after"{print $2}')
 [ -n "$RETRY_AFTER" ] || fail "429 response has no Retry-After header"
 pass "429 carries Retry-After ($RETRY_AFTER s)"
+
+# --- courts admin -------------------------------------------------------------------
+# any court except the one the bookings above use
+OTHER_COURT=$(curl -s "$BASE/courts" -H "Authorization: Bearer $ADMIN_TOKEN" \
+    | jq -r --arg used "$COURT_ID" '[.[] | select(.id != $used)][0].id')
+expect 204 "admin deactivates a court" -X DELETE "$BASE/courts/$OTHER_COURT" -H "Authorization: Bearer $ADMIN_TOKEN"
+expect 200 "users see only active courts" "$BASE/courts" -H "Authorization: Bearer $USER_TOKEN"
+[ "$(jq length <<<"$RESPONSE")" -eq 3 ] || fail "deactivated court still listed for users"
+expect 200 "admin lists inactive courts too" "$BASE/courts?includeInactive=true" -H "Authorization: Bearer $ADMIN_TOKEN"
+[ "$(jq length <<<"$RESPONSE")" -eq 4 ] || fail "admin should see all 4 courts"
+expect 403 "users can't list inactive courts" "$BASE/courts?includeInactive=true" -H "Authorization: Bearer $USER_TOKEN"
+expect 200 "admin reactivates the court" -X PATCH "$BASE/courts/$OTHER_COURT/activate" -H "Authorization: Bearer $ADMIN_TOKEN"
+[ "$(jq -r .active <<<"$RESPONSE")" = "true" ] || fail "court not active again"
+
+# --- frontend support -------------------------------------------------------------
+expect 200 "OpenAPI spec is served" "http://localhost:8080/v3/api-docs"
+[ "$(jq -r '.paths | has("/api/v1/bookings/my")' <<<"$RESPONSE")" = "true" ] || fail "spec is missing endpoints"
+# the logged-in user is injected by Spring Security, not something a client sends
+[ "$(jq '[.paths["/api/v1/bookings/my"].get.parameters // [] | .[] | select(.name == "principal")] | length' <<<"$RESPONSE")" = "0" ] \
+    || fail "spec lists the security principal as a request parameter"
+
+PREFLIGHT=$(curl -s -o /dev/null -D - -X OPTIONS "$BASE/bookings" \
+    -H "Origin: http://localhost:3000" -H "Access-Control-Request-Method: POST" \
+    -H "Access-Control-Request-Headers: authorization,content-type" | tr -d '\r')
+grep -qi "^access-control-allow-origin: http://localhost:3000" <<<"$PREFLIGHT" || fail "CORS preflight not allowed for localhost:3000"
+pass "CORS preflight allowed for the configured origin"
+OTHER=$(curl -s -o /dev/null -w '%{http_code}' -X OPTIONS "$BASE/bookings" \
+    -H "Origin: https://evil.example" -H "Access-Control-Request-Method: POST")
+[ "$OTHER" = "403" ] || fail "CORS preflight from an unknown origin got $OTHER, expected 403"
+pass "CORS preflight refused for other origins"
 
 # --- error handling -------------------------------------------------------------
 expect 400 "malformed JSON is 400, not 500" -X POST "$BASE/auth/login" \

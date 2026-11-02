@@ -49,7 +49,7 @@ public class BookingEventRecorder {
                 type == BookingEventType.BOOKING_CANCELLED || type == BookingEventType.BOOKING_EXPIRED
                         ? booking.getCancellationReason() : null,
                 type == BookingEventType.BOOKING_CREATED && booking.getCreatedAt() != null
-                        ? booking.getCreatedAt().plus(bookingProperties.paymentTimeout()) : null
+                        ? bookingProperties.payBy(booking.getCreatedAt()) : null
         );
 
         outbox.save(OutboxEvent.builder()

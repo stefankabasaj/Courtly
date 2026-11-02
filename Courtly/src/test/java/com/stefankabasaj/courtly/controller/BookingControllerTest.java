@@ -62,7 +62,7 @@ class BookingControllerTest {
                 UUID.randomUUID(), "Court A", "CLAY",
                 start, start.plusHours(2), 2,
                 new BigDecimal("25.00"), new BigDecimal("50.00"),
-                "PENDING", null, true,
+                "PENDING", null, true, LocalDateTime.now().plusMinutes(15),
                 LocalDateTime.now(), LocalDateTime.now()
         );
     }

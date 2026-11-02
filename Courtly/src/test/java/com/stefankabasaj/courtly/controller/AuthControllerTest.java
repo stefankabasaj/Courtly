@@ -20,6 +20,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -89,14 +90,15 @@ class AuthControllerTest {
     void login_returns200() throws Exception {
         LoginRequest req = new LoginRequest("stefan@courtly.com", "Password1!");
         when(authService.login(any(), any()))
-                .thenReturn(AuthResponse.of("jwt.token.here", "stefan@courtly.com", "USER"));
+                .thenReturn(AuthResponse.of("jwt.token.here", Instant.parse("2030-06-01T10:00:00Z"), "stefan@courtly.com", "USER"));
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.token").value("jwt.token.here"))
-                .andExpect(jsonPath("$.type").value("Bearer"));
+                .andExpect(jsonPath("$.type").value("Bearer"))
+                .andExpect(jsonPath("$.expiresAt").value("2030-06-01T10:00:00Z"));
     }
 
     @Test

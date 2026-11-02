@@ -1,5 +1,6 @@
 package com.stefankabasaj.courtly.service;
 
+import com.stefankabasaj.courtly.config.BookingProperties;
 import com.stefankabasaj.courtly.dto.request.AdminCancelRequest;
 import com.stefankabasaj.courtly.dto.request.BookingRequest;
 import com.stefankabasaj.courtly.dto.request.CancelBookingRequest;
@@ -43,6 +44,7 @@ public class BookingService {
     private final UserRepository       userRepository;
     private final BookingValidator     bookingValidator;
     private final BookingEventRecorder events;
+    private final BookingProperties    bookingProperties;
 
     @Transactional
     public BookingResponse createBooking(UUID userId, BookingRequest request) {
@@ -207,6 +209,8 @@ public class BookingService {
                 b.getStatus().name(),
                 b.getCancellationReason(),
                 isCancellable(b),
+                b.getStatus() == Booking.BookingStatus.PENDING && b.getCreatedAt() != null
+                        ? bookingProperties.payBy(b.getCreatedAt()) : null,
                 b.getCreatedAt(),
                 b.getUpdatedAt()
         );

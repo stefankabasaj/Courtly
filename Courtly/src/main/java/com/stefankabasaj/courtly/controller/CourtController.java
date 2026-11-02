@@ -3,6 +3,7 @@ package com.stefankabasaj.courtly.controller;
 import com.stefankabasaj.courtly.dto.request.CourtRequest;
 import com.stefankabasaj.courtly.dto.response.CourtAvailabilityResponse;
 import com.stefankabasaj.courtly.dto.response.CourtResponse;
+import com.stefankabasaj.courtly.security.AuthenticatedUser;
 import com.stefankabasaj.courtly.service.CourtAvailabilityService;
 import com.stefankabasaj.courtly.service.CourtService;
 import jakarta.validation.Valid;
@@ -10,7 +11,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -25,9 +28,18 @@ public class CourtController {
     private final CourtService             courtService;
     private final CourtAvailabilityService availabilityService;
 
+    // active courts for everyone. ?includeInactive=true is for the admin panel
     @GetMapping
-    public ResponseEntity<List<CourtResponse>> getAll() {
-        return ResponseEntity.ok(courtService.getAllActiveCourts());
+    public ResponseEntity<List<CourtResponse>> getAll(
+            @RequestParam(defaultValue = "false") boolean includeInactive,
+            @AuthenticationPrincipal AuthenticatedUser principal) {
+        if (!includeInactive) {
+            return ResponseEntity.ok(courtService.getAllActiveCourts());
+        }
+        if (!principal.isAdmin()) {
+            throw new AccessDeniedException("Only admins can list inactive courts");
+        }
+        return ResponseEntity.ok(courtService.getAllCourts());
     }
 
     @GetMapping("/{id}")
@@ -63,5 +75,12 @@ public class CourtController {
     public ResponseEntity<Void> deactivate(@PathVariable UUID id) {
         courtService.deactivateCourt(id);
         return ResponseEntity.noContent().build();
+    }
+
+    // undoes the DELETE above
+    @PatchMapping("/{id}/activate")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<CourtResponse> activate(@PathVariable UUID id) {
+        return ResponseEntity.ok(courtService.activateCourt(id));
     }
 }

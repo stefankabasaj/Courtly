@@ -52,6 +52,13 @@ spring:
     baseline-on-migrate: true
     validate-on-migrate: true
 
+  # two threads: OutboxPublisher can wait on Kafka for a few seconds, and that
+  # shouldn't hold up BookingExpiryJob behind it
+  task:
+    scheduling:
+      pool:
+        size: 2
+
   jackson:
     serialization:
       write-dates-as-timestamps: false
@@ -71,6 +78,10 @@ app:
   courts:
     opening-hour: ${COURTS_OPENING_HOUR:7}
     closing-hour: ${COURTS_CLOSING_HOUR:23}
+  # for a frontend on another origin during development, e.g. http://localhost:3000.
+  # comma-separated; empty = CORS off
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:}
   # admin account created at startup - see AdminBootstrap
   admin:
     email: ${ADMIN_EMAIL:}

@@ -30,6 +30,15 @@ public class CourtService {
                 .toList();
     }
 
+    // admin view: the deactivated ones too, so they can be found and brought back
+    @Transactional(readOnly = true)
+    public List<CourtResponse> getAllCourts() {
+        return courtRepository.findAllByOrderByNameAsc()
+                .stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
     @Transactional(readOnly = true)
     public CourtResponse getCourtById(UUID id) {
         return toResponse(findOrThrow(id));
@@ -86,6 +95,19 @@ public class CourtService {
 
         court.setActive(false);
         courtRepository.save(court);
+    }
+
+    @Transactional
+    public CourtResponse activateCourt(UUID id) {
+        log.info("Activating court id={}", id);
+        Court court = findOrThrow(id);
+
+        if (court.isActive()) {
+            throw new BusinessException("Court '" + court.getName() + "' is already active.");
+        }
+
+        court.setActive(true);
+        return toResponse(courtRepository.save(court));
     }
 
     private Court findOrThrow(UUID id) {

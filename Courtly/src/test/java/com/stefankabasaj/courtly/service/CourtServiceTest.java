@@ -126,4 +126,33 @@ class CourtServiceTest {
         assertThat(resp.surface()).isEqualTo("HARD");
         assertThat(resp.pricePerHour()).isEqualByComparingTo("30.00");
     }
+
+    @Test
+    @DisplayName("activateCourt - brings a deactivated court back")
+    void activate_inactive() {
+        Court court = buildCourt(false);
+        when(courtRepository.findById(court.getId())).thenReturn(Optional.of(court));
+        when(courtRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        assertThat(courtService.activateCourt(court.getId()).active()).isTrue();
+    }
+
+    @Test
+    @DisplayName("activateCourt - already active throws BusinessException")
+    void activate_alreadyActive() {
+        Court court = buildCourt(true);
+        when(courtRepository.findById(court.getId())).thenReturn(Optional.of(court));
+
+        assertThatThrownBy(() -> courtService.activateCourt(court.getId()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("already active");
+    }
+
+    @Test
+    @DisplayName("getAllCourts - includes inactive ones")
+    void getAll_includesInactive() {
+        when(courtRepository.findAllByOrderByNameAsc()).thenReturn(List.of(buildCourt(true), buildCourt(false)));
+
+        assertThat(courtService.getAllCourts()).extracting(CourtResponse::active).containsExactly(true, false);
+    }
 }

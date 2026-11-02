@@ -14,7 +14,7 @@ docker compose up --build
 
 Postgres, Redis, Kafka and Mailpit start first, then two app instances, nginx in front of them on port 8080, and the notification service. A couple of minutes on the first run (it builds two images).
 
-- API: http://localhost:8080
+- API: http://localhost:8080 (Swagger UI at /swagger-ui.html)
 - Emails: http://localhost:8025 (Mailpit catches everything, nothing really gets sent)
 
 To see which instance answered what: `docker compose logs -f nginx`.
@@ -92,6 +92,7 @@ Older versions seeded `admin@courtly.com` / `Admin123!`. That password is public
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9094` |
 | `BOOKING_EVENTS_TOPIC` | `courtly.booking-events` |
 | `OUTBOX_PUBLISH_INTERVAL_MS` | `1000` |
+| `CORS_ALLOWED_ORIGINS` | - (off; e.g. `http://localhost:3000` for a frontend dev server) |
 | `REDIS_HOST` | `localhost` |
 | `REDIS_PORT` | `6379` |
 | `SERVER_PORT` | `8080` |

@@ -10,6 +10,7 @@ import com.stefankabasaj.courtly.entity.Court;
 import com.stefankabasaj.courtly.exception.ConflictException;
 import com.stefankabasaj.courtly.exception.ResourceNotFoundException;
 import com.stefankabasaj.courtly.security.JwtService;
+import com.stefankabasaj.courtly.security.AuthenticatedUser;
 import com.stefankabasaj.courtly.service.CourtService;
 import org.junit.jupiter.api.DisplayName;
 import org.springframework.test.context.ActiveProfiles;
@@ -19,6 +20,8 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -28,7 +31,9 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -168,5 +173,43 @@ class CourtControllerTest {
     void availability_badDate_returns400() throws Exception {
         mockMvc.perform(get("/api/v1/courts/{id}/availability", sample.id()).param("date", "tomorrow"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("GET /courts?includeInactive=true - ADMIN gets all courts")
+    void getAll_includeInactive_admin() throws Exception {
+        when(courtService.getAllCourts()).thenReturn(List.of(sample));
+
+        mockMvc.perform(get("/api/v1/courts").param("includeInactive", "true")
+                        .with(authentication(auth("ADMIN"))))
+                .andExpect(status().isOk());
+        verify(courtService).getAllCourts();
+    }
+
+    @Test
+    @DisplayName("GET /courts?includeInactive=true - 403 for USER")
+    void getAll_includeInactive_user() throws Exception {
+        mockMvc.perform(get("/api/v1/courts").param("includeInactive", "true")
+                        .with(authentication(auth("USER"))))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("PATCH /courts/{id}/activate - ADMIN 200, USER 403")
+    void activate() throws Exception {
+        when(courtService.activateCourt(sample.id())).thenReturn(sample);
+
+        mockMvc.perform(patch("/api/v1/courts/{id}/activate", sample.id())
+                        .with(authentication(auth("ADMIN"))))
+                .andExpect(status().isOk());
+        mockMvc.perform(patch("/api/v1/courts/{id}/activate", sample.id())
+                        .with(authentication(auth("USER"))))
+                .andExpect(status().isForbidden());
+    }
+
+    private UsernamePasswordAuthenticationToken auth(String role) {
+        return new UsernamePasswordAuthenticationToken(
+                new AuthenticatedUser(UUID.randomUUID(), "stefan@courtly.com", role), null,
+                List.of(new SimpleGrantedAuthority("ROLE_" + role)));
     }
 }

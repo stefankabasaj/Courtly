@@ -9,6 +9,7 @@ import com.stefankabasaj.courtly.exception.BusinessException;
 import com.stefankabasaj.courtly.exception.ConflictException;
 import com.stefankabasaj.courtly.repository.UserRepository;
 import com.stefankabasaj.courtly.exception.TooManyRequestsException;
+import com.stefankabasaj.courtly.security.IssuedToken;
 import com.stefankabasaj.courtly.security.JwtService;
 import com.stefankabasaj.courtly.security.LoginAttemptService;
 import org.junit.jupiter.api.DisplayName;
@@ -21,6 +22,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -40,6 +42,7 @@ class AuthServiceTest {
     @InjectMocks AuthService authService;
 
     private static final String IP = "203.0.113.7";
+    private static final Instant EXPIRES = Instant.parse("2030-06-01T10:00:00Z");
 
     @Test
     @DisplayName("register - success, returns USER role")
@@ -81,13 +84,14 @@ class AuthServiceTest {
 
         when(userRepository.findByEmail("stefan@courtly.com")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("Password1!", "hashed")).thenReturn(true);
-        when(jwtService.generateToken(any(), any(), any())).thenReturn("jwt.token.here");
+        when(jwtService.issueToken(any(), any(), any())).thenReturn(new IssuedToken("jwt.token.here", EXPIRES));
 
         AuthResponse resp = authService.login(
                 new LoginRequest("stefan@courtly.com", "Password1!"), IP);
 
         assertThat(resp.token()).isEqualTo("jwt.token.here");
         assertThat(resp.type()).isEqualTo("Bearer");
+        assertThat(resp.expiresAt()).isEqualTo(EXPIRES);
     }
 
     @Test
@@ -124,7 +128,7 @@ class AuthServiceTest {
 
         when(userRepository.findByEmail("stefan@courtly.com")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("Password1!", "hashed")).thenReturn(true);
-        when(jwtService.generateToken(any(), any(), any())).thenReturn("jwt.token.here");
+        when(jwtService.issueToken(any(), any(), any())).thenReturn(new IssuedToken("jwt.token.here", EXPIRES));
 
         AuthResponse resp = authService.login(
                 new LoginRequest("  Stefan@Courtly.COM ", "Password1!"), IP);
@@ -204,7 +208,7 @@ class AuthServiceTest {
                 .passwordHash("hashed").role(User.Role.USER).active(true).build();
         when(userRepository.findByEmail("stefan@courtly.com")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("Password1!", "hashed")).thenReturn(true);
-        when(jwtService.generateToken(any(), any(), any())).thenReturn("jwt.token.here");
+        when(jwtService.issueToken(any(), any(), any())).thenReturn(new IssuedToken("jwt.token.here", EXPIRES));
 
         authService.login(new LoginRequest("stefan@courtly.com", "Password1!"), IP);
 
@@ -226,5 +230,19 @@ class AuthServiceTest {
 
         verify(passwordEncoder, never()).matches(any(), any());
         verify(loginAttempts).recordFailure("stefan@courtly.com", IP);
+    }
+
+    @Test
+    @DisplayName("currentUser - comes from the DB, so a deactivated account shows as inactive")
+    void currentUser_fromDb() {
+        UUID id = UUID.randomUUID();
+        User user = User.builder().id(id).email("stefan@courtly.com")
+                .passwordHash("hashed").role(User.Role.USER).active(false).build();
+        when(userRepository.findById(id)).thenReturn(Optional.of(user));
+
+        UserResponse me = authService.currentUser(id);
+
+        assertThat(me.email()).isEqualTo("stefan@courtly.com");
+        assertThat(me.active()).isFalse();
     }
 }

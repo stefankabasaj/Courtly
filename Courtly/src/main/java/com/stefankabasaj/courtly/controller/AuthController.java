@@ -5,6 +5,7 @@ import com.stefankabasaj.courtly.dto.request.RegisterRequest;
 import com.stefankabasaj.courtly.dto.response.AuthResponse;
 import com.stefankabasaj.courtly.dto.response.UserResponse;
 import com.stefankabasaj.courtly.service.AuthService;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -12,6 +13,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+// public - no lock in Swagger UI
+@SecurityRequirements
 @RestController
 @RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor

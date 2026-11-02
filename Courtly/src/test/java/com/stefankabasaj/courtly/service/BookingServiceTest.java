@@ -1,5 +1,6 @@
 package com.stefankabasaj.courtly.service;
 
+import com.stefankabasaj.courtly.config.BookingProperties;
 import com.stefankabasaj.courtly.config.OpeningHoursProperties;
 import com.stefankabasaj.courtly.dto.request.AdminCancelRequest;
 import com.stefankabasaj.courtly.dto.request.BookingRequest;
@@ -32,6 +33,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -52,6 +54,7 @@ class BookingServiceTest {
     @Mock  UserRepository    userRepository;
     @Mock  BookingEventRecorder events;
     @Spy   BookingValidator  bookingValidator = new BookingValidator(new OpeningHoursProperties(7, 23));
+    @Spy   BookingProperties bookingProperties = new BookingProperties(Duration.ofMinutes(15));
     @InjectMocks BookingService bookingService;
 
     private User  user;
@@ -178,6 +181,27 @@ class BookingServiceTest {
 
             verify(bookingRepository, never()).save(any());
             verifyNoInteractions(events);
+        }
+    }
+
+    @Nested @DisplayName("payBy in the response")
+    class PayBy {
+
+        @Test @DisplayName("PENDING - created + payment window")
+        void pending() {
+            Booking booking = buildBooking(Booking.BookingStatus.PENDING);
+            booking.setCreatedAt(LocalDateTime.of(2030, 5, 30, 18, 0));
+
+            assertThat(bookingService.toResponse(booking).payBy())
+                    .isEqualTo(LocalDateTime.of(2030, 5, 30, 18, 15));
+        }
+
+        @Test @DisplayName("CONFIRMED - nothing left to pay, no deadline")
+        void confirmed() {
+            Booking booking = buildBooking(Booking.BookingStatus.CONFIRMED);
+            booking.setCreatedAt(LocalDateTime.of(2030, 5, 30, 18, 0));
+
+            assertThat(bookingService.toResponse(booking).payBy()).isNull();
         }
     }
 

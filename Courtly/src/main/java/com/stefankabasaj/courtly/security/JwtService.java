@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.Date;
 import java.util.Optional;
 import java.util.UUID;
@@ -32,18 +33,21 @@ public class JwtService {
         this.expirationMs = expirationMs;
     }
 
-    public String generateToken(UUID userId, String email, String role) {
-        Date now    = new Date();
-        Date expiry = new Date(now.getTime() + expirationMs);
+    public IssuedToken issueToken(UUID userId, String email, String role) {
+        Instant now    = Instant.now();
+        Instant expiry = now.plusMillis(expirationMs);
 
-        return Jwts.builder()
+        String token = Jwts.builder()
                 .subject(email)
                 .claim(CLAIM_USER_ID, userId.toString())
                 .claim(CLAIM_ROLE, role)
-                .issuedAt(now)
-                .expiration(expiry)
+                .issuedAt(Date.from(now))
+                .expiration(Date.from(expiry))
                 .signWith(secretKey)
                 .compact();
+
+        // JWT expiry has whole-second precision - report what's actually in the token
+        return new IssuedToken(token, Instant.ofEpochSecond(expiry.getEpochSecond()));
     }
 
     /**

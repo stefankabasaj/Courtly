@@ -12,6 +12,8 @@ public interface CourtRepository extends JpaRepository<Court, UUID> {
 
     List<Court> findAllByActiveTrue();
 
+    List<Court> findAllByOrderByNameAsc();
+
     boolean existsByName(String name);
 
     // for updates: lets a court keep its own name but not take another's

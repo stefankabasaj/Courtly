@@ -7,7 +7,9 @@ import com.stefankabasaj.courtly.dto.response.UserResponse;
 import com.stefankabasaj.courtly.entity.User;
 import com.stefankabasaj.courtly.exception.BusinessException;
 import com.stefankabasaj.courtly.exception.ConflictException;
+import com.stefankabasaj.courtly.exception.ResourceNotFoundException;
 import com.stefankabasaj.courtly.repository.UserRepository;
+import com.stefankabasaj.courtly.security.IssuedToken;
 import com.stefankabasaj.courtly.security.JwtService;
 import com.stefankabasaj.courtly.security.LoginAttemptService;
 import com.stefankabasaj.courtly.validation.MaxBytesValidator;
@@ -19,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Locale;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -75,9 +78,17 @@ public class AuthService {
             throw new BusinessException("This account has been deactivated. Please contact support.");
         }
 
-        String token = jwtService.generateToken(user.getId(), user.getEmail(), user.getRole().name());
+        IssuedToken token = jwtService.issueToken(user.getId(), user.getEmail(), user.getRole().name());
         log.info("Login successful userId={}", user.getId());
-        return AuthResponse.of(token, user.getEmail(), user.getRole().name());
+        return AuthResponse.of(token.token(), token.expiresAt(), user.getEmail(), user.getRole().name());
+    }
+
+    // from the DB, not the token - so a deactivated account shows up as such
+    @Transactional(readOnly = true)
+    public UserResponse currentUser(UUID userId) {
+        return userRepository.findById(userId)
+                .map(this::toResponse)
+                .orElseThrow(() -> new ResourceNotFoundException("User", userId));
     }
 
     // a password BCrypt can't even hash can't be anyone's password - just a failed login, not a 500

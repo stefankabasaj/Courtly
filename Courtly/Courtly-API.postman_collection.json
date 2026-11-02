@@ -45,6 +45,10 @@
             "url": "{{baseUrl}}/auth/login",
             "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}" }
           }
+        },
+        {
+          "name": "Get Current User",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{baseUrl}}/users/me" }
         }
       ]
     },
@@ -86,6 +90,14 @@
         {
           "name": "Deactivate Court (Admin)",
           "request": { "method": "DELETE", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{baseUrl}}/courts/{{courtId}}" }
+        },
+        {
+          "name": "Get All Courts incl. Inactive (Admin)",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{baseUrl}}/courts?includeInactive=true" }
+        },
+        {
+          "name": "Activate Court (Admin)",
+          "request": { "method": "PATCH", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{baseUrl}}/courts/{{courtId}}/activate" }
         }
       ]
     },
