@@ -90,6 +90,12 @@ What had to change: the login counters (Redis, above). What didn't: sessions (th
 
 The grid is built from one query for the whole day. A slot is taken if any PENDING or CONFIRMED booking overlaps it, using the same half-open rule as the database constraint, and past slots are never free.
 
+## Tests against the real database
+
+The rules that matter most live in PostgreSQL itself: the exclusion constraint, `FOR UPDATE SKIP LOCKED` in the expiry job, the advisory lock in the outbox publisher. H2 can't run any of them, so the unit tests mock those queries - which proves nothing about the queries. The `*PostgresTest` classes run them against a real PostgreSQL in a container, on the real Flyway migrations, including two transactions at once for the locking ones.
+
+The smoke test adds the end-to-end version: 30 requests for the same slot at the same moment, spread over both app instances. The app-level overlap check races (each instance sees a free slot), so it's the database constraint that has to turn 29 of them into 409s. It does.
+
 ## What the API gives a frontend
 
 A few things exist mainly so a frontend doesn't have to guess:

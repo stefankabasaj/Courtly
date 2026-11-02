@@ -38,7 +38,7 @@ In IntelliJ, put the same variables in the run configuration instead (or use the
 ./mvnw test
 ```
 
-Tests use H2 with PostgreSQL compatibility mode. Flyway is disabled - Hibernate creates the schema from entities directly.
+Most tests are plain unit tests with mocks, plus `@WebMvcTest` controller tests. The repository tests (`*PostgresTest`) and the Redis counter test start real PostgreSQL and Redis containers with Testcontainers, and run the real Flyway migrations - so they need Docker. Without Docker they're skipped, not failed.
 
 ## Connecting to the database
 

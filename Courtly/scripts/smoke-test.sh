@@ -191,6 +191,24 @@ book "back-to-back 12-14 is allowed" 201 12 14
 BACK_TO_BACK_ID=$(jq -r .id <<<"$RESPONSE")
 book "outside opening hours (05-06) is rejected" 400 05 06
 
+# --- 30 people book the same slot at the same moment -------------------------------
+# spread over both replicas, so the app-level overlap check races and only the
+# database constraint stands between them and a double booking. exactly one wins
+RACE_DIR=$(mktemp -d)
+seq 1 30 | xargs -P 30 -I{} sh -c '
+    curl -s -o /dev/null -w "%{http_code}\n" -X POST "$0/bookings" \
+        -H "Authorization: Bearer $1" -H "Content-Type: application/json" \
+        -d "{\"courtId\":\"$2\",\"startTime\":\"$3T20:00:00\",\"endTime\":\"$3T21:00:00\"}" > "$4/{}"
+' "$BASE" "$USER_TOKEN" "$COURT_ID" "$DAY" "$RACE_DIR"
+WON=$(cat "$RACE_DIR"/* | grep -c '^201$' || true)
+LOST=$(cat "$RACE_DIR"/* | grep -c '^409$' || true)
+rm -rf "$RACE_DIR"
+[ "$WON" -eq 1 ] && [ "$LOST" -eq 29 ] || fail "30 parallel bookings for one slot: $WON won, $LOST got 409 (expected 1 and 29)"
+ROWS=$(psql_smoke -tAc "SELECT count(*) FROM courtly.bookings
+                        WHERE court_id = '$COURT_ID' AND start_time = '${DAY} 20:00' AND status <> 'CANCELLED'")
+[ "$ROWS" = "1" ] || fail "expected 1 booking for the raced slot, found $ROWS"
+pass "30 parallel bookings for one slot: 1 created, 29 rejected with 409"
+
 # --- availability ------------------------------------------------------------------
 expect 200 "availability for the day" "$BASE/courts/$COURT_ID/availability?date=$DAY" \
     -H "Authorization: Bearer $USER_TOKEN"
