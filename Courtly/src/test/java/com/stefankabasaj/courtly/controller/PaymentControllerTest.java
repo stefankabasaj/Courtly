@@ -5,6 +5,7 @@ import com.stefankabasaj.courtly.config.SecurityConfig;
 import com.stefankabasaj.courtly.dto.request.PaymentRequest;
 import com.stefankabasaj.courtly.dto.response.PaymentResponse;
 import com.stefankabasaj.courtly.exception.ResourceNotFoundException;
+import com.stefankabasaj.courtly.idempotency.IdempotencyService;
 import com.stefankabasaj.courtly.security.AuthenticatedUser;
 import com.stefankabasaj.courtly.security.JwtService;
 import com.stefankabasaj.courtly.service.PaymentService;
@@ -29,10 +30,12 @@ import java.util.UUID;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -48,6 +51,7 @@ class PaymentControllerTest {
 
     @MockitoBean PaymentService paymentService;
     @MockitoBean JwtService     jwtService;
+    @MockitoBean IdempotencyService idempotency;
 
     private UUID bookingId;
     private AuthenticatedUser principal;
@@ -80,6 +84,25 @@ class PaymentControllerTest {
                         .content(objectMapper.writeValueAsString(new PaymentRequest("CREDIT_CARD"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("SUCCESS"));
+        // no Idempotency-Key: straight to the service
+        verifyNoInteractions(idempotency);
+    }
+
+    @Test
+    @DisplayName("POST /payments/{bookingId} with Idempotency-Key - goes through the idempotency check, says if it's a replay")
+    void pay_withIdempotencyKey() throws Exception {
+        when(idempotency.execute(eq("payment:" + principal.userId()), eq("key-12345678"),
+                eq(bookingId + ":CREDIT_CARD"), eq(PaymentResponse.class), any()))
+                .thenReturn(new IdempotencyService.Outcome<>(sample, true));
+
+        mockMvc.perform(post("/api/v1/payments/{id}", bookingId)
+                        .with(authentication(auth()))
+                        .header("Idempotency-Key", "key-12345678")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new PaymentRequest("CREDIT_CARD"))))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Idempotent-Replayed", "true"))
+                .andExpect(jsonPath("$.id").value(sample.id().toString()));
     }
 
     @Test

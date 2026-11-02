@@ -90,6 +90,14 @@ What had to change: the login counters (Redis, above). What didn't: sessions (th
 
 The grid is built from one query for the whole day. A slot is taken if any PENDING or CONFIRMED booking overlaps it, using the same half-open rule as the database constraint, and past slots are never free.
 
+## Idempotency keys on payments
+
+The payment endpoint was already safe against double charging - one payment row per booking, enforced by the database. But "safe" there meant the second click got a 409, and a client that timed out had no way to learn what the first request did. With an `Idempotency-Key` header (what Stripe does), the repeat gets the original answer back.
+
+`IdempotencyService` keeps it in Redis, per user. The key is claimed with `SET NX` before the payment runs, so two copies arriving together can't both run - the second gets 409 "still being processed". The claim expires after a minute, so a crash mid-request doesn't lock the key for a day; the finished result is kept for 24 hours. If the payment throws, the transaction rolled back and the claim is dropped, so the same key can be retried. A key sent again with a different booking is refused rather than replayed, because that's a bug in the client that replaying would hide.
+
+One gap, on purpose: if the app dies after the payment commits but before the result reaches Redis, the claim expires and a retry runs the payment again. That retry finds the booking already CONFIRMED and is refused, so nobody is charged twice - the client just gets an error instead of the original answer.
+
 ## Monitoring
 
 The question monitoring has to answer is "is it working for players right now", so besides the usual request rates and latencies there are counters for the things that matter here: bookings by what happened to them, payments by result, logins by result, and emails by result. Bookings are counted in `BookingEventRecorder` - every state change already goes through it, so one counter covers them all.

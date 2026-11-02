@@ -262,6 +262,31 @@ for i in $(seq 1 10); do
 done
 wait_for_mail "$EMAIL" "Booking confirmed: $COURT_NAME, $SDAY 10:00" "confirmation email arrives"
 
+# --- paying twice with the same Idempotency-Key ------------------------------------
+book "book 07-08 to pay with an idempotency key" 201 07 08
+IDEM_BOOKING=$(jq -r .id <<<"$RESPONSE")
+IDEM_KEY="smoke-$(date +%s)-$RANDOM"
+pay_with_key() {   # <booking id> <key> -> headers + body
+    curl -s -D - -X POST "$BASE/payments/$1" \
+        -H "Authorization: Bearer $USER_TOKEN" -H 'Content-Type: application/json' \
+        -H "Idempotency-Key: $2" -d '{"paymentMethod":"CREDIT_CARD"}' | tr -d '\r'
+}
+FIRST=$(pay_with_key "$IDEM_BOOKING" "$IDEM_KEY")
+SECOND=$(pay_with_key "$IDEM_BOOKING" "$IDEM_KEY")
+FIRST_ID=$(tail -1 <<<"$FIRST" | jq -r .id)
+SECOND_ID=$(tail -1 <<<"$SECOND" | jq -r .id)
+[ -n "$FIRST_ID" ] && [ "$FIRST_ID" != "null" ] || fail "payment with an Idempotency-Key failed: $(tail -1 <<<"$FIRST")"
+[ "$FIRST_ID" = "$SECOND_ID" ] || fail "same Idempotency-Key gave two different payments ($FIRST_ID, $SECOND_ID)"
+grep -qi "^idempotent-replayed: false" <<<"$FIRST"  || fail "first request should not be marked as a replay"
+grep -qi "^idempotent-replayed: true"  <<<"$SECOND" || fail "second request should be marked as a replay"
+[ "$(psql_smoke -tAc "SELECT count(*) FROM courtly.payments WHERE booking_id = '$IDEM_BOOKING'")" = "1" ] \
+    || fail "expected one payment row for the booking"
+pass "same Idempotency-Key twice: one payment, the second answer is a replay"
+
+expect 400 "an Idempotency-Key can't be reused for another booking" -X POST "$BASE/payments/$REBOOKED_ID" \
+    -H "Authorization: Bearer $USER_TOKEN" -H 'Content-Type: application/json' \
+    -H "Idempotency-Key: $IDEM_KEY" -d '{"paymentMethod":"CREDIT_CARD"}'
+
 # --- events: outbox, duplicates, dead letters --------------------------------------
 for i in $(seq 1 15); do
     UNSENT=$(psql_smoke -tAc "SELECT count(*) FROM courtly.outbox_events WHERE published_at IS NULL")

@@ -94,9 +94,10 @@ public class SecurityConfig {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOrigins(corsProperties.allowedOrigins());
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(List.of("Authorization", "Content-Type"));
-        // so the frontend can read Retry-After on a 429
-        config.setExposedHeaders(List.of("Retry-After"));
+        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Idempotency-Key"));
+        // headers the frontend may want to read: when to retry a 429, whether a payment was
+        // a replay, and the request id to quote when something goes wrong
+        config.setExposedHeaders(List.of("Retry-After", "Idempotent-Replayed", "X-Request-Id"));
         // the token goes in a header, never a cookie, so no credentials mode
         config.setAllowCredentials(false);
         config.setMaxAge(Duration.ofHours(1));

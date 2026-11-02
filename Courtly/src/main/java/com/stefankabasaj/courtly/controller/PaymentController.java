@@ -2,6 +2,7 @@ package com.stefankabasaj.courtly.controller;
 
 import com.stefankabasaj.courtly.dto.request.PaymentRequest;
 import com.stefankabasaj.courtly.dto.response.PaymentResponse;
+import com.stefankabasaj.courtly.idempotency.IdempotencyService;
 import com.stefankabasaj.courtly.security.AuthenticatedUser;
 import com.stefankabasaj.courtly.service.PaymentService;
 import jakarta.validation.Valid;
@@ -17,16 +18,35 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class PaymentController {
 
-    private final PaymentService paymentService;
+    static final String IDEMPOTENCY_KEY = "Idempotency-Key";
+    static final String REPLAYED        = "Idempotent-Replayed";
 
-    // ownership check happens in the service
+    private final PaymentService     paymentService;
+    private final IdempotencyService idempotency;
+
+    // ownership check happens in the service.
+    // with an Idempotency-Key, a repeat of the same request gets the first answer
+    // back (Idempotent-Replayed: true) instead of a second payment attempt
     @PostMapping("/{bookingId}")
     public ResponseEntity<PaymentResponse> processPayment(
             @PathVariable UUID bookingId,
             @Valid @RequestBody PaymentRequest request,
+            @RequestHeader(value = IDEMPOTENCY_KEY, required = false) String idempotencyKey,
             @AuthenticationPrincipal AuthenticatedUser principal) {
-        return ResponseEntity.ok(
-                paymentService.processPayment(bookingId, principal.userId(), request));
+        if (idempotencyKey == null) {
+            return ResponseEntity.ok(paymentService.processPayment(bookingId, principal.userId(), request));
+        }
+
+        var outcome = idempotency.execute(
+                "payment:" + principal.userId(),
+                idempotencyKey,
+                bookingId + ":" + request.paymentMethod(),
+                PaymentResponse.class,
+                () -> paymentService.processPayment(bookingId, principal.userId(), request));
+
+        return ResponseEntity.ok()
+                .header(REPLAYED, String.valueOf(outcome.replayed()))
+                .body(outcome.result());
     }
 
     // only the booking's owner or an admin - checked in the service

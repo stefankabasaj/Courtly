@@ -98,11 +98,13 @@ Times are the courts' local time (`APP_TIMEZONE`, default `Europe/Belgrade`) and
 
 | Method | Path | Who | Notes |
 |---|---|---|---|
-| POST | `/api/v1/payments/{bookingId}` | booking owner | PENDING bookings only. A declined payment can be retried |
+| POST | `/api/v1/payments/{bookingId}` | booking owner | PENDING bookings only. A declined payment can be retried. Optional `Idempotency-Key` header |
 | GET | `/api/v1/payments/booking/{bookingId}` | booking owner / admin | 404 for anyone else |
 
 
 The payment gateway is simulated and approves about 90% of payments.
+
+Send an `Idempotency-Key` (e.g. a UUID made when the user clicks "pay") and a repeat of the same request - a double click, a retry after a timeout - gets the first answer back with `Idempotent-Replayed: true`, instead of a second attempt. To try again after a declined payment, use a new key.
 
 Players get an email when a booking is created, confirmed, cancelled or released. Locally they land in Mailpit: http://localhost:8025.
 

@@ -156,7 +156,7 @@
           "name": "Process Payment",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }, { "key": "Idempotency-Key", "value": "{{$guid}}", "description": "new for each click; send the same one again to get the first answer back" }],
             "url": "{{baseUrl}}/payments/{{bookingId}}",
             "body": { "mode": "raw", "raw": "{\n  \"paymentMethod\": \"CREDIT_CARD\"\n}" }
           }
