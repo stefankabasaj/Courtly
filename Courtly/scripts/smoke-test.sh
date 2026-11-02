@@ -161,6 +161,7 @@ EMAIL="smoke-$(date +%s)@courtly.test"
 expect 201 "register user" -X POST "$BASE/auth/register" \
     -H 'Content-Type: application/json' \
     -d "{\"email\":\"$EMAIL\",\"password\":\"Password1!\"}"
+[ "$(jq -r .createdAt <<<"$RESPONSE")" != "null" ] || fail "new user has no createdAt"
 
 expect 200 "user login" -X POST "$BASE/auth/login" \
     -H 'Content-Type: application/json' \
@@ -180,6 +181,7 @@ DAY=$(date -u -d '+3 days' +%Y-%m-%d)
 SDAY=$(LC_ALL=C date -d "$DAY" '+%a %-d %b')
 book "book 10-12" 201 10 12
 BOOKING_ID=$(jq -r .id <<<"$RESPONSE")
+[ "$(jq -r .createdAt <<<"$RESPONSE")" != "null" ] || fail "new booking has no createdAt"
 [ "$(jq -r .payBy <<<"$RESPONSE")" != "null" ] || fail "PENDING booking has no payBy"
 wait_for_mail "$EMAIL" "Booking received: $COURT_NAME, $SDAY 10:00" "booking email arrives"
 [ "$(jq -r .totalPrice <<<"$RESPONSE")" != "null" ] || fail "booking has no price"

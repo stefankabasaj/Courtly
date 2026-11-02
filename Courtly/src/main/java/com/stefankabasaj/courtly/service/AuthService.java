@@ -51,7 +51,8 @@ public class AuthService {
                 .role(User.Role.USER)
                 .build();
 
-        User saved = userRepository.save(user);
+        // flush so createdAt (set by Hibernate at the INSERT) is in the response
+        User saved = userRepository.saveAndFlush(user);
         log.info("User registered id={}", saved.getId());
         return toResponse(saved);
     }

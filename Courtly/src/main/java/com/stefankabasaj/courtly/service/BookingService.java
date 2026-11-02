@@ -88,7 +88,10 @@ public class BookingService {
                 .status(Booking.BookingStatus.PENDING)
                 .build();
 
-        Booking saved = bookingRepository.save(booking);
+        // flush now: Hibernate fills in createdAt/updatedAt at the INSERT, and the
+        // response (and payBy in it) needs them. a race on the slot also fails
+        // here, as a 409, instead of at commit
+        Booking saved = bookingRepository.saveAndFlush(booking);
         events.record(saved, BookingEventType.BOOKING_CREATED);
         log.info("Booking created id={} totalPrice={}", saved.getId(), saved.getTotalPrice());
         return toResponse(saved);
@@ -145,7 +148,8 @@ public class BookingService {
                         ? request.reason().trim()
                         : "Cancelled by user");
 
-        Booking saved = bookingRepository.save(booking);
+        // flush so updatedAt in the response is the new one
+        Booking saved = bookingRepository.saveAndFlush(booking);
         events.record(saved, BookingEventType.BOOKING_CANCELLED);
         log.info("Booking {} cancelled by user {}", bookingId, userId);
         return toResponse(saved);
@@ -170,7 +174,8 @@ public class BookingService {
         booking.setStatus(Booking.BookingStatus.CANCELLED);
         booking.setCancellationReason(request.reason());
 
-        Booking saved = bookingRepository.save(booking);
+        // flush so updatedAt in the response is the new one
+        Booking saved = bookingRepository.saveAndFlush(booking);
         events.record(saved, BookingEventType.BOOKING_CANCELLED);
         log.info("Booking {} admin-cancelled", bookingId);
         return toResponse(saved);

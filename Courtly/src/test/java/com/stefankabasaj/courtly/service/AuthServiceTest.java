@@ -49,7 +49,7 @@ class AuthServiceTest {
     void register_newEmail_success() {
         when(userRepository.existsByEmail("stefan@courtly.com")).thenReturn(false);
         when(passwordEncoder.encode("Password1!")).thenReturn("hashed");
-        when(userRepository.save(any())).thenAnswer(inv -> {
+        when(userRepository.saveAndFlush(any())).thenAnswer(inv -> {
             User u = inv.getArgument(0);
             u.setId(UUID.randomUUID());
             return u;
@@ -72,7 +72,7 @@ class AuthServiceTest {
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("already exists");
 
-        verify(userRepository, never()).save(any());
+        verify(userRepository, never()).saveAndFlush(any());
     }
 
     @Test

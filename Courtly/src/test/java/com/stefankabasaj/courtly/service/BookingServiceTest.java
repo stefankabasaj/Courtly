@@ -98,7 +98,7 @@ class BookingServiceTest {
             when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
             when(courtRepository.findById(court.getId())).thenReturn(Optional.of(court));
             when(bookingRepository.existsOverlappingBooking(any(), any(), any())).thenReturn(false);
-            when(bookingRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+            when(bookingRepository.saveAndFlush(any())).thenAnswer(i -> i.getArgument(0));
 
             BookingResponse resp = bookingService.createBooking(
                     user.getId(), new BookingRequest(court.getId(), start, end));
@@ -107,7 +107,7 @@ class BookingServiceTest {
             assertThat(resp.totalPrice()).isEqualByComparingTo("50.00");
             assertThat(resp.durationHours()).isEqualTo(2);
             assertThat(resp.courtName()).isEqualTo("Court A");
-            verify(bookingRepository).save(any());
+            verify(bookingRepository).saveAndFlush(any());
             verify(events).record(any(), eq(BookingEventType.BOOKING_CREATED));
         }
 
@@ -121,7 +121,7 @@ class BookingServiceTest {
                     user.getId(), new BookingRequest(court.getId(), start, end)))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("deactivated");
-            verify(bookingRepository, never()).save(any());
+            verify(bookingRepository, never()).saveAndFlush(any());
         }
 
         @Test @DisplayName("court not found → 404")
@@ -179,7 +179,7 @@ class BookingServiceTest {
                     .isInstanceOf(ConflictException.class)
                     .hasMessageContaining("already booked");
 
-            verify(bookingRepository, never()).save(any());
+            verify(bookingRepository, never()).saveAndFlush(any());
             verifyNoInteractions(events);
         }
     }
@@ -250,7 +250,7 @@ class BookingServiceTest {
             Booking booking = buildBooking(Booking.BookingStatus.PENDING);
             when(bookingRepository.findByIdWithDetails(booking.getId()))
                     .thenReturn(Optional.of(booking));
-            when(bookingRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+            when(bookingRepository.saveAndFlush(any())).thenAnswer(i -> i.getArgument(0));
 
             BookingResponse resp = bookingService.cancelBooking(
                     booking.getId(), user.getId(), new CancelBookingRequest("Too busy"));
@@ -269,7 +269,7 @@ class BookingServiceTest {
             assertThatThrownBy(() -> bookingService.cancelBooking(
                     booking.getId(), UUID.randomUUID(), null))
                     .isInstanceOf(ResourceNotFoundException.class);
-            verify(bookingRepository, never()).save(any());
+            verify(bookingRepository, never()).saveAndFlush(any());
         }
 
         @Test @DisplayName("blank reason falls back to the default")
@@ -277,7 +277,7 @@ class BookingServiceTest {
             Booking booking = buildBooking(Booking.BookingStatus.PENDING);
             when(bookingRepository.findByIdWithDetails(booking.getId()))
                     .thenReturn(Optional.of(booking));
-            when(bookingRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+            when(bookingRepository.saveAndFlush(any())).thenAnswer(i -> i.getArgument(0));
 
             BookingResponse resp = bookingService.cancelBooking(
                     booking.getId(), user.getId(), new CancelBookingRequest("   "));
@@ -329,7 +329,7 @@ class BookingServiceTest {
             Booking booking = buildBooking(Booking.BookingStatus.CONFIRMED);
             when(bookingRepository.findByIdWithDetails(booking.getId()))
                     .thenReturn(Optional.of(booking));
-            when(bookingRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+            when(bookingRepository.saveAndFlush(any())).thenAnswer(i -> i.getArgument(0));
 
             BookingResponse resp = bookingService.adminCancelBooking(
                     booking.getId(), new AdminCancelRequest("Court maintenance"));
