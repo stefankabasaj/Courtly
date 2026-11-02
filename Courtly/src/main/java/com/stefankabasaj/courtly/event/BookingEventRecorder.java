@@ -3,15 +3,19 @@ package com.stefankabasaj.courtly.event;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stefankabasaj.courtly.config.BookingProperties;
+import com.stefankabasaj.courtly.config.RequestIdFilter;
 import com.stefankabasaj.courtly.entity.Booking;
 import com.stefankabasaj.courtly.entity.OutboxEvent;
 import com.stefankabasaj.courtly.repository.OutboxEventRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Locale;
 import java.util.UUID;
 
 /**
@@ -30,6 +34,7 @@ public class BookingEventRecorder {
     private final OutboxEventRepository outbox;
     private final ObjectMapper          objectMapper;
     private final BookingProperties     bookingProperties;
+    private final MeterRegistry         metrics;
 
     @Transactional(propagation = Propagation.MANDATORY)
     public void record(Booking booking, BookingEventType type) {
@@ -49,7 +54,8 @@ public class BookingEventRecorder {
                 type == BookingEventType.BOOKING_CANCELLED || type == BookingEventType.BOOKING_EXPIRED
                         ? booking.getCancellationReason() : null,
                 type == BookingEventType.BOOKING_CREATED && booking.getCreatedAt() != null
-                        ? bookingProperties.payBy(booking.getCreatedAt()) : null
+                        ? bookingProperties.payBy(booking.getCreatedAt()) : null,
+                MDC.get(RequestIdFilter.MDC_KEY)
         );
 
         outbox.save(OutboxEvent.builder()
@@ -59,6 +65,11 @@ public class BookingEventRecorder {
                 .payload(toJson(event))
                 .createdAt(now)
                 .build());
+
+        // every booking state change goes through here, so this one counter covers them all:
+        // courtly_bookings_total{event="created|confirmed|cancelled|expired"}
+        metrics.counter("courtly.bookings", "event",
+                type.name().substring("BOOKING_".length()).toLowerCase(Locale.ROOT)).increment();
     }
 
     private String toJson(BookingEvent event) {

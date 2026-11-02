@@ -8,11 +8,13 @@ import com.stefankabasaj.courtly.entity.User;
 import com.stefankabasaj.courtly.exception.BusinessException;
 import com.stefankabasaj.courtly.exception.ConflictException;
 import com.stefankabasaj.courtly.exception.ResourceNotFoundException;
+import com.stefankabasaj.courtly.exception.TooManyRequestsException;
 import com.stefankabasaj.courtly.repository.UserRepository;
 import com.stefankabasaj.courtly.security.IssuedToken;
 import com.stefankabasaj.courtly.security.JwtService;
 import com.stefankabasaj.courtly.security.LoginAttemptService;
 import com.stefankabasaj.courtly.validation.MaxBytesValidator;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -35,6 +37,7 @@ public class AuthService {
     private final PasswordEncoder     passwordEncoder;
     private final JwtService          jwtService;
     private final LoginAttemptService loginAttempts;
+    private final MeterRegistry       metrics;
 
     @Transactional
     public UserResponse register(RegisterRequest request) {
@@ -63,13 +66,19 @@ public class AuthService {
         log.debug("Login attempt email={} ip={}", email, clientIp);
 
         // before touching the DB or BCrypt, so a blocked attacker costs us nothing
-        loginAttempts.checkAllowed(email, clientIp);
+        try {
+            loginAttempts.checkAllowed(email, clientIp);
+        } catch (TooManyRequestsException e) {
+            countLogin("blocked");
+            throw e;
+        }
 
         // unknown email and wrong password count the same, so the limit doesn't
         // reveal which emails have accounts
         User user = userRepository.findByEmail(email).orElse(null);
         if (user == null || !passwordMatches(request.password(), user)) {
             loginAttempts.recordFailure(email, clientIp);
+            countLogin("failed");
             throw new BadCredentialsException("Invalid email or password");
         }
         loginAttempts.recordSuccess(email);
@@ -79,6 +88,7 @@ public class AuthService {
             throw new BusinessException("This account has been deactivated. Please contact support.");
         }
 
+        countLogin("success");
         IssuedToken token = jwtService.issueToken(user.getId(), user.getEmail(), user.getRole().name());
         log.info("Login successful userId={}", user.getId());
         return AuthResponse.of(token.token(), token.expiresAt(), user.getEmail(), user.getRole().name());
@@ -90,6 +100,11 @@ public class AuthService {
         return userRepository.findById(userId)
                 .map(this::toResponse)
                 .orElseThrow(() -> new ResourceNotFoundException("User", userId));
+    }
+
+    // courtly_logins_total{result="success|failed|blocked"} - a jump in failed/blocked is someone guessing
+    private void countLogin(String result) {
+        metrics.counter("courtly.logins", "result", result).increment();
     }
 
     // a password BCrypt can't even hash can't be anyone's password - just a failed login, not a 500

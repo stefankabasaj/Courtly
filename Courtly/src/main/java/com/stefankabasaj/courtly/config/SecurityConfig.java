@@ -75,6 +75,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         .requestMatchers("/api/v1/health").permitAll()
                         .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()
+                        // Prometheus scrapes the instances directly inside the Docker network;
+                        // nginx doesn't pass this path through, so it isn't public
+                        .requestMatchers("/actuator/prometheus").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/courts/**").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/courts/**").hasRole("ADMIN")

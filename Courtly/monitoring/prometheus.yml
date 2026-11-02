@@ -1,0 +1,25 @@
+# Scrapes both API replicas and the notification service every 15s.
+# UI: http://localhost:9090 (Alerts tab shows the rules in alerts.yml)
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  # "app" resolves to every replica in Docker's DNS, so a scaled-up API is
+  # picked up without touching this file
+  - job_name: courtly-api
+    metrics_path: /actuator/prometheus
+    dns_sd_configs:
+      - names: [app]
+        type: A
+        port: 8080
+        refresh_interval: 15s
+
+  - job_name: courtly-notifications
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['notifications:8081']

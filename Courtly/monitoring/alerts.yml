@@ -1,0 +1,72 @@
+# What should wake someone up. No Alertmanager in the local setup, so these
+# only show in Prometheus (Alerts tab); in production Alertmanager would send
+# them to email / Slack / a pager.
+
+groups:
+  - name: courtly
+    rules:
+
+      - alert: ApiInstanceDown
+        expr: up{job="courtly-api"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "API instance {{ $labels.instance }} is down"
+          description: "nginx still sends traffic to the other one, but there's no spare left."
+
+      - alert: NotificationServiceDown
+        expr: up{job="courtly-notifications"} == 0
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: "Notification service is down"
+          description: "Bookings still work. Events wait in Kafka and the emails go out once it's back."
+
+      # booking events normally reach Kafka within a second or two
+      - alert: OutboxBacklog
+        expr: max(courtly_outbox_oldest_unsent_age_seconds) > 60
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Booking events stuck in the outbox for {{ $value | humanizeDuration }}"
+          description: "Kafka is unreachable or OutboxPublisher is failing. Nobody is getting booking emails."
+
+      - alert: EmailsFailing
+        expr: sum(increase(courtly_notifications_total{result="failed"}[10m])) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "Booking emails are failing to send"
+          description: "Failed sends are retried, then parked in courtly.booking-events.DLT. Check the mail server."
+
+      - alert: EventsInDeadLetterTopic
+        expr: sum(increase(courtly_notifications_total{result="invalid"}[10m])) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "Unreadable booking events went to the DLT"
+          description: "Something put a message on the topic that isn't a valid event. Look at courtly.booking-events.DLT."
+
+      # one person forgetting a password won't hit 20 blocks in 5 minutes
+      - alert: LoginBruteForce
+        expr: sum(increase(courtly_logins_total{result="blocked"}[5m])) > 20
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $value }} blocked logins in 5 minutes"
+          description: "Someone is guessing passwords. The rate limit is holding; check the logs for the IPs."
+
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_server_requests_seconds_count{job="courtly-api", status=~"5.."}[5m]))
+            / sum(rate(http_server_requests_seconds_count{job="courtly-api"}[5m])) > 0.05
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of API requests are failing with 5xx"
+
+      - alert: SlowResponses
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_server_requests_seconds_bucket{job="courtly-api", uri!~"/actuator.*"}[5m]))) > 1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "95% of API requests take up to {{ $value | humanizeDuration }}"

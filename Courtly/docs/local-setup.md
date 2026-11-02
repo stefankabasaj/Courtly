@@ -16,6 +16,14 @@ Postgres, Redis, Kafka and Mailpit start first, then two app instances, nginx in
 
 - API: http://localhost:8080 (Swagger UI at /swagger-ui.html)
 - Emails: http://localhost:8025 (Mailpit catches everything, nothing really gets sent)
+- Dashboard: http://localhost:3001 (Grafana, no login needed to look; `admin` / `GRAFANA_ADMIN_PASSWORD` to edit)
+- Metrics and alerts: http://localhost:9090 (Prometheus - the Alerts tab shows what would fire)
+
+Every response has an `X-Request-Id` header. To see everything one request did, in both services:
+
+```bash
+docker compose logs app notifications | grep <request id>
+```
 
 To see which instance answered what: `docker compose logs -f nginx`.
 
@@ -96,6 +104,7 @@ Older versions seeded `admin@courtly.com` / `Admin123!`. That password is public
 | `REDIS_HOST` | `localhost` |
 | `REDIS_PORT` | `6379` |
 | `SERVER_PORT` | `8080` |
+| `GRAFANA_ADMIN_PASSWORD` | `admin` (docker compose only) |
 
 Generate a JWT secret:
 ```bash
@@ -110,4 +119,4 @@ Starts the whole stack with docker compose and checks it end to end over HTTP: m
 ./scripts/smoke-test.sh
 ```
 
-Needs Docker, `curl`, `jq` and `openssl`. It runs as a separate compose project (`courtly-smoke`) with throwaway credentials, so your local database is never touched, and removes its containers and volume when it finishes. Ports 8080, 5432, 6379, 9094 and 8025 have to be free.
+Needs Docker, `curl`, `jq` and `openssl`. It runs as a separate compose project (`courtly-smoke`) with throwaway credentials, so your local database is never touched, and removes its containers and volume when it finishes. Ports 8080, 5432, 6379, 9094, 8025, 9090 and 3001 have to be free.

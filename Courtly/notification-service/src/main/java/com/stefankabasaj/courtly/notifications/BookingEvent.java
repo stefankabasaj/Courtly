@@ -24,5 +24,6 @@ public record BookingEvent(
         LocalDateTime endTime,
         BigDecimal totalPrice,
         String reason,
-        LocalDateTime payBy
+        LocalDateTime payBy,
+        String requestId    // the API request behind it; null for the API's own jobs
 ) {}

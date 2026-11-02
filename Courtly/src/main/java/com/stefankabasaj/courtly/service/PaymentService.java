@@ -13,6 +13,7 @@ import com.stefankabasaj.courtly.exception.ResourceNotFoundException;
 import com.stefankabasaj.courtly.repository.BookingRepository;
 import com.stefankabasaj.courtly.repository.PaymentRepository;
 import com.stefankabasaj.courtly.security.AuthenticatedUser;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -34,6 +35,7 @@ public class PaymentService {
     private final BookingRepository    bookingRepository;
     private final BookingProperties    bookingProperties;
     private final BookingEventRecorder events;
+    private final MeterRegistry        metrics;
 
     @Transactional
     public PaymentResponse processPayment(UUID bookingId, UUID payerId, PaymentRequest request) {
@@ -80,10 +82,12 @@ public class PaymentService {
             booking.setStatus(Booking.BookingStatus.CONFIRMED);
             bookingRepository.save(booking);
             events.record(booking, BookingEventType.BOOKING_CONFIRMED);
+            metrics.counter("courtly.payments", "result", "success").increment();
             log.info("Payment SUCCESS bookingId={} amount={}", bookingId, payment.getAmount());
         } else {
             payment.setStatus(Payment.PaymentStatus.FAILED);
             payment.setFailureReason("Card declined (simulated)");
+            metrics.counter("courtly.payments", "result", "failed").increment();
             log.warn("Payment FAILED bookingId={}", bookingId);
         }
 

@@ -32,4 +32,12 @@ management:
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,prometheus
+  metrics:
+    tags:
+      application: courtly-notifications
+
+logging:
+  pattern:
+    # the id of the API request that caused the event - see BookingEventListener
+    correlation: "[%X{requestId:-}] "

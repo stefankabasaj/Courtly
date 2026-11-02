@@ -106,7 +106,14 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
+  metrics:
+    tags:
+      application: courtly
+    distribution:
+      # buckets, so Grafana can work out p95 latency across both instances
+      percentiles-histogram:
+        http.server.requests: true
   endpoint:
     health:
       # DB/disk details only for admins - every logged-in user counts as "authorized" otherwise
@@ -121,6 +128,9 @@ info:
     version: 1.0.0
 
 logging:
+  pattern:
+    # every line a request causes carries its id - see RequestIdFilter
+    correlation: "[%X{requestId:-}] "
   level:
     com.stefankabasaj.courtly: INFO
     org.springframework.security: WARN

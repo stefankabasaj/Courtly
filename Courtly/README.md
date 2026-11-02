@@ -41,6 +41,7 @@ For more setup options see [docs/local-setup.md](docs/local-setup.md).
 - nginx in front of two app instances
 - Kafka + transactional outbox for booking events
 - `notification-service`: emails players from those events ([README](notification-service/README.md))
+- Prometheus + Grafana: business metrics, alert rules and a dashboard; a request id in every log line
 - Docker, Docker Compose
 - JUnit 5, Mockito
 

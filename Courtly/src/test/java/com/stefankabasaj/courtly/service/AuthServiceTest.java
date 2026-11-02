@@ -12,12 +12,14 @@ import com.stefankabasaj.courtly.exception.TooManyRequestsException;
 import com.stefankabasaj.courtly.security.IssuedToken;
 import com.stefankabasaj.courtly.security.JwtService;
 import com.stefankabasaj.courtly.security.LoginAttemptService;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.springframework.test.context.ActiveProfiles;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -39,6 +41,7 @@ class AuthServiceTest {
     @Mock PasswordEncoder passwordEncoder;
     @Mock JwtService      jwtService;
     @Mock LoginAttemptService loginAttempts;
+    @Spy  SimpleMeterRegistry metrics = new SimpleMeterRegistry();
     @InjectMocks AuthService authService;
 
     private static final String IP = "203.0.113.7";
@@ -244,5 +247,26 @@ class AuthServiceTest {
 
         assertThat(me.email()).isEqualTo("stefan@courtly.com");
         assertThat(me.active()).isFalse();
+    }
+
+    @Test
+    @DisplayName("login outcomes are counted - success, failed, blocked")
+    void loginMetrics() {
+        User user = User.builder()
+                .id(UUID.randomUUID()).email("stefan@courtly.com")
+                .passwordHash("hashed").role(User.Role.USER).active(true).build();
+        when(userRepository.findByEmail("stefan@courtly.com")).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("Password1!", "hashed")).thenReturn(true);
+        when(passwordEncoder.matches("wrong", "hashed")).thenReturn(false);
+        when(jwtService.issueToken(any(), any(), any())).thenReturn(new IssuedToken("t", EXPIRES));
+
+        authService.login(new LoginRequest("stefan@courtly.com", "Password1!"), IP);
+        assertThatThrownBy(() -> authService.login(new LoginRequest("stefan@courtly.com", "wrong"), IP));
+        doThrow(new TooManyRequestsException("blocked", 60)).when(loginAttempts).checkAllowed("stefan@courtly.com", IP);
+        assertThatThrownBy(() -> authService.login(new LoginRequest("stefan@courtly.com", "wrong"), IP));
+
+        assertThat(metrics.counter("courtly.logins", "result", "success").count()).isEqualTo(1.0);
+        assertThat(metrics.counter("courtly.logins", "result", "failed").count()).isEqualTo(1.0);
+        assertThat(metrics.counter("courtly.logins", "result", "blocked").count()).isEqualTo(1.0);
     }
 }

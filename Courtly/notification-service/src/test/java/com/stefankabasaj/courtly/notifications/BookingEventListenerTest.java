@@ -3,6 +3,7 @@ package com.stefankabasaj.courtly.notifications;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -33,6 +34,7 @@ class BookingEventListenerTest {
     @Mock JavaMailSender  mailSender;
 
     private BookingEventListener listener;
+    private final SimpleMeterRegistry metrics = new SimpleMeterRegistry();
     private final UUID eventId = UUID.randomUUID();
 
     @BeforeEach
@@ -41,7 +43,7 @@ class BookingEventListenerTest {
         ObjectMapper json = new ObjectMapper().findAndRegisterModules()
                 .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
         listener = new BookingEventListener(json, new BookingEmails(),
-                processed, mailSender, "Courtly <no-reply@courtly.local>");
+                processed, mailSender, "Courtly <no-reply@courtly.local>", metrics);
     }
 
     // shaped like the API's JSON, including a field this service doesn't know about
@@ -67,6 +69,8 @@ class BookingEventListenerTest {
         assertThat(sent.getValue().getFrom()).isEqualTo("Courtly <no-reply@courtly.local>");
         assertThat(sent.getValue().getSubject()).startsWith("Booking received: ");
         verify(processed).markSent(eventId);
+        assertThat(metrics.counter("courtly.notifications", "type", "BOOKING_CREATED", "result", "sent").count())
+                .isEqualTo(1.0);
     }
 
     @Test
@@ -78,6 +82,8 @@ class BookingEventListenerTest {
 
         verifyNoInteractions(mailSender);
         verify(processed, never()).markSent(any());
+        assertThat(metrics.counter("courtly.notifications", "type", "BOOKING_CREATED", "result", "duplicate").count())
+                .isEqualTo(1.0);
     }
 
     @Test
@@ -89,6 +95,8 @@ class BookingEventListenerTest {
         assertThatThrownBy(() -> listener.onBookingEvent(payload("BOOKING_CONFIRMED")))
                 .isInstanceOf(MailSendException.class);
         verify(processed, never()).markSent(any());
+        assertThat(metrics.counter("courtly.notifications", "type", "BOOKING_CONFIRMED", "result", "failed").count())
+                .isEqualTo(1.0);
     }
 
     @Test

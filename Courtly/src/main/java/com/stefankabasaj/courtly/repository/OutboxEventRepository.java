@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Repository
@@ -21,6 +22,9 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, UUID> 
         LIMIT :limit
         """, nativeQuery = true)
     List<OutboxEvent> findUnpublished(@Param("limit") int limit);
+
+    @Query("SELECT MIN(e.createdAt) FROM OutboxEvent e WHERE e.publishedAt IS NULL")
+    Optional<LocalDateTime> oldestUnpublished();
 
     // Postgres advisory lock, released when the transaction ends. only one
     // instance publishes at a time, which keeps events in order (see OutboxPublisher)

@@ -9,6 +9,8 @@ import com.stefankabasaj.courtly.entity.Court;
 import com.stefankabasaj.courtly.entity.OutboxEvent;
 import com.stefankabasaj.courtly.entity.User;
 import com.stefankabasaj.courtly.repository.OutboxEventRepository;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -16,6 +18,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.MDC;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -35,11 +38,12 @@ class BookingEventRecorderTest {
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
     private BookingEventRecorder recorder;
+    private final SimpleMeterRegistry metrics = new SimpleMeterRegistry();
     private Booking booking;
 
     @BeforeEach
     void setUp() {
-        recorder = new BookingEventRecorder(outbox, json, new BookingProperties(Duration.ofMinutes(15)));
+        recorder = new BookingEventRecorder(outbox, json, new BookingProperties(Duration.ofMinutes(15)), metrics);
         LocalDateTime start = LocalDateTime.of(2030, 6, 1, 10, 0);
         booking = Booking.builder()
                 .id(UUID.randomUUID())
@@ -81,6 +85,22 @@ class BookingEventRecorderTest {
         assertThat(payload.get("totalPrice").decimalValue()).isEqualByComparingTo("50.00");
         assertThat(payload.get("payBy").asText()).isEqualTo("2030-05-30T18:15:00");
         assertThat(payload.get("reason").isNull()).isTrue();
+        assertThat(metrics.counter("courtly.bookings", "event", "created").count()).isEqualTo(1.0);
+    }
+
+    @Test
+    @DisplayName("carries the id of the request that caused it, so it can be followed into the notification logs")
+    void requestId() throws Exception {
+        MDC.put("requestId", "req-123");
+
+        recorder.record(booking, BookingEventType.BOOKING_CREATED);
+
+        assertThat(json.readTree(saved().getPayload()).get("requestId").asText()).isEqualTo("req-123");
+    }
+
+    @AfterEach
+    void clearMdc() {
+        MDC.clear();
     }
 
     @Test

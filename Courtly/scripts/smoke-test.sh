@@ -8,7 +8,7 @@
 #
 # Runs as its own compose project with throwaway credentials, so it never
 # touches your local stack's database. It does need ports 8080, 5432, 6379,
-# 9094 and 8025 free.
+# 9094, 8025, 9090 and 3001 free.
 #
 # Requests go through nginx to two app replicas, so everything here also
 # checks that the instances agree with each other (shared Redis, same JWT key).
@@ -395,6 +395,22 @@ expect 200 "actuator health for admin" "http://localhost:8080/actuator/health" \
 [ "$(jq -r '.components.db.status' <<<"$RESPONSE")" = "UP" ] || fail "admin should see the db status"
 pass "health details only for admins"
 
+# --- following one request through both services ----------------------------------
+# nginx gives every request an id; the API logs it, puts it in the booking event,
+# and the notification service logs it when it sends the email
+TRACE_HEADERS=$(curl -s -o /dev/null -D - -X POST "$BASE/bookings" \
+    -H "Authorization: Bearer $USER_TOKEN" -H 'Content-Type: application/json' \
+    -d "{\"courtId\":\"$COURT_ID\",\"startTime\":\"${DAY}T18:00:00\",\"endTime\":\"${DAY}T19:00:00\"}" | tr -d '\r')
+TRACE_ID=$(awk -F': ' 'tolower($1)=="x-request-id"{print $2}' <<<"$TRACE_HEADERS")
+[ -n "$TRACE_ID" ] || fail "no X-Request-Id on the response"
+wait_for_mail "$EMAIL" "Booking received: $COURT_NAME, $SDAY 18:00" "booking email for the traced request arrives"
+# logs captured first - grep -q stopping early would trip pipefail
+API_LOGS=$("${COMPOSE[@]}" logs app)
+NOTIFICATION_LOGS=$("${COMPOSE[@]}" logs notifications)
+grep -q -- "$TRACE_ID" <<<"$API_LOGS" || fail "request id $TRACE_ID not in the API logs"
+grep -q -- "$TRACE_ID" <<<"$NOTIFICATION_LOGS" || fail "request id $TRACE_ID not in the notification service logs"
+pass "request $TRACE_ID shows up in the API and notification service logs"
+
 # --- notification service ----------------------------------------------------------
 NOTIFICATIONS=$("${COMPOSE[@]}" ps -q notifications)
 for i in $(seq 1 20); do
@@ -404,6 +420,46 @@ for i in $(seq 1 20); do
     sleep 3
 done
 pass "notification service is healthy"
+
+# --- monitoring -------------------------------------------------------------------
+PROM="http://localhost:9090/api/v1"
+expect 404 "metrics aren't public through nginx" "http://localhost:8080/actuator/prometheus"
+
+for i in $(seq 1 30); do
+    UP_API=$(curl -s "$PROM/targets" | jq '[.data.activeTargets[] | select(.labels.job == "courtly-api" and .health == "up")] | length')
+    UP_NOTIF=$(curl -s "$PROM/targets" | jq '[.data.activeTargets[] | select(.labels.job == "courtly-notifications" and .health == "up")] | length')
+    [ "$UP_API" = "2" ] && [ "$UP_NOTIF" = "1" ] && break
+    [ "$i" -eq 30 ] && fail "Prometheus sees $UP_API API instance(s) and $UP_NOTIF notification service(s) up, expected 2 and 1"
+    sleep 3
+done
+pass "Prometheus scrapes both API replicas and the notification service"
+
+# the counters from this run have to make it into Prometheus
+prom_value() {
+    curl -s --get --data-urlencode "query=$1" "$PROM/query" | jq -r '.data.result[0].value[1] // "0"'
+}
+for i in $(seq 1 30); do
+    BOOKED=$(prom_value 'sum(courtly_bookings_total{event="created"})')
+    SENT=$(prom_value 'sum(courtly_notifications_total{result="sent"})')
+    BLOCKED=$(prom_value 'sum(courtly_logins_total{result="blocked"})')
+    awk "BEGIN{exit !($BOOKED > 0 && $SENT > 0 && $BLOCKED > 0)}" && break
+    [ "$i" -eq 30 ] && fail "metrics missing in Prometheus: bookings=$BOOKED emails=$SENT blocked logins=$BLOCKED"
+    sleep 3
+done
+pass "business metrics in Prometheus (bookings $BOOKED, emails $SENT, blocked logins $BLOCKED)"
+
+RULES=$(curl -s "$PROM/rules" | jq '[.data.groups[].rules[]] | length')
+[ "$RULES" -ge 8 ] || fail "expected the alert rules to be loaded, found $RULES"
+pass "$RULES alert rules loaded"
+
+for i in $(seq 1 30); do
+    curl -sf "http://localhost:3001/api/health" >/dev/null && break
+    [ "$i" -eq 30 ] && fail "Grafana did not come up"
+    sleep 2
+done
+DASH=$(curl -s "http://localhost:3001/api/search?query=Courtly" | jq -r '.[] | select(.uid == "courtly") | .title')
+[ "$DASH" = "Courtly" ] || fail "Courtly dashboard not provisioned in Grafana"
+pass "Grafana is up with the Courtly dashboard"
 
 # --- load balancing -------------------------------------------------------------
 UPSTREAMS=$("${COMPOSE[@]}" logs nginx | grep -oE -- '-> [0-9.]+:8080' | sort -u | wc -l)

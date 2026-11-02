@@ -2,8 +2,10 @@ package com.stefankabasaj.courtly.notifications;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.mail.SimpleMailMessage;
@@ -32,37 +34,72 @@ public class BookingEventListener {
     private final ProcessedEvents  processed;
     private final JavaMailSender   mailSender;
     private final String           from;
+    private final MeterRegistry    metrics;
 
     public BookingEventListener(ObjectMapper objectMapper, BookingEmails emails, ProcessedEvents processed,
-                                JavaMailSender mailSender, @Value("${app.mail.from}") String from) {
+                                JavaMailSender mailSender, @Value("${app.mail.from}") String from,
+                                MeterRegistry metrics) {
         this.objectMapper = objectMapper;
         this.emails       = emails;
         this.processed    = processed;
         this.mailSender   = mailSender;
         this.from         = from;
+        this.metrics      = metrics;
     }
 
     @KafkaListener(topics = "${app.events.topic}")
     public void onBookingEvent(String payload) throws JsonProcessingException {
-        BookingEvent event = objectMapper.readValue(payload, BookingEvent.class);
+        BookingEvent event;
+        try {
+            event = objectMapper.readValue(payload, BookingEvent.class);
+        } catch (JsonProcessingException e) {
+            count("unknown", "invalid");
+            throw e;
+        }
         if (event.eventId() == null || event.type() == null) {
+            count("unknown", "invalid");
             throw new InvalidEventException("Event without eventId or type: " + payload);
         }
 
+        // same request id as the API's log lines for the request behind this event
+        if (event.requestId() != null) {
+            MDC.put("requestId", event.requestId());
+        }
+        try {
+            handle(event);
+        } finally {
+            MDC.remove("requestId");
+        }
+    }
+
+    private void handle(BookingEvent event) {
         if (processed.alreadySent(event.eventId())) {
+            count(event.type(), "duplicate");
             log.info("Already emailed event {} ({}), skipping the duplicate", event.eventId(), event.type());
             return;
         }
 
         Optional<Email> email = emails.compose(event);
         if (email.isEmpty()) {
+            count(event.type(), "ignored");
             log.debug("No email for event type {}", event.type());
             return;
         }
 
-        mailSender.send(toMessage(email.get()));
+        try {
+            mailSender.send(toMessage(email.get()));
+        } catch (RuntimeException e) {
+            count(event.type(), "failed");
+            throw e;
+        }
         processed.markSent(event.eventId());
+        count(event.type(), "sent");
         log.info("Emailed {} for booking {} ({})", email.get().to(), event.bookingId(), event.type());
+    }
+
+    // courtly_notifications_total{type, result="sent|duplicate|ignored|failed|invalid"}
+    private void count(String type, String result) {
+        metrics.counter("courtly.notifications", "type", type, "result", result).increment();
     }
 
     private SimpleMailMessage toMessage(Email email) {

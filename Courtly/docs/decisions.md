@@ -90,6 +90,16 @@ What had to change: the login counters (Redis, above). What didn't: sessions (th
 
 The grid is built from one query for the whole day. A slot is taken if any PENDING or CONFIRMED booking overlaps it, using the same half-open rule as the database constraint, and past slots are never free.
 
+## Monitoring
+
+The question monitoring has to answer is "is it working for players right now", so besides the usual request rates and latencies there are counters for the things that matter here: bookings by what happened to them, payments by result, logins by result, and emails by result. Bookings are counted in `BookingEventRecorder` - every state change already goes through it, so one counter covers them all.
+
+The most useful single number is `courtly_outbox_oldest_unsent_age_seconds`: how long the oldest booking event has been waiting to go to Kafka. Normally a second or two. If it climbs, emails have stopped, whatever the reason (Kafka down, publisher stuck), and nothing else would show it - the API keeps answering 200 the whole time.
+
+Prometheus finds the API replicas through Docker's DNS, so scaling up needs no config change. The alert rules (`monitoring/alerts.yml`) are about symptoms players would notice - instance down, emails stuck or failing, 5xx rate, slow responses - plus a brute-force signal from blocked logins. Locally there's no Alertmanager; the rules show in Prometheus' Alerts tab. In production it would route them to email or Slack.
+
+Every request gets an id (nginx's `$request_id`, or one the app makes up), returned as `X-Request-Id` and printed in every log line. It also travels inside the booking event, so the notification service logs it too: one grep shows a request from the HTTP call to the email. A tracing system (OpenTelemetry + Tempo/Jaeger) would do this properly, with timings per hop; for two services a shared id in the logs gets most of the value.
+
 ## Tests against the real database
 
 The rules that matter most live in PostgreSQL itself: the exclusion constraint, `FOR UPDATE SKIP LOCKED` in the expiry job, the advisory lock in the outbox publisher. H2 can't run any of them, so the unit tests mock those queries - which proves nothing about the queries. The `*PostgresTest` classes run them against a real PostgreSQL in a container, on the real Flyway migrations, including two transactions at once for the locking ones.
