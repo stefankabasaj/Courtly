@@ -91,7 +91,8 @@ class OutboxEventRepositoryPostgresTest extends PostgresRepositoryTest {
         assertThat(second).isFalse();
 
         // the lock ended with instance 1's transaction
-        assertThat(tx.execute(s -> outbox.tryLock(LOCK_KEY))).isTrue();
+        Boolean afterwards = tx.execute(s -> outbox.tryLock(LOCK_KEY));
+        assertThat(afterwards).isTrue();
     }
 
     @Test
