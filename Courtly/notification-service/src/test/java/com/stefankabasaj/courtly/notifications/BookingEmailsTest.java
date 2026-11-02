@@ -18,7 +18,7 @@ class BookingEmailsTest {
         LocalDateTime start = LocalDateTime.of(2030, 6, 1, 10, 0);
         return new BookingEvent(UUID.randomUUID(), type, LocalDateTime.now(), UUID.randomUUID(),
                 "stefan@courtly.com", "Court A - Clay", start, start.plusHours(2),
-                new BigDecimal("50"), reason, payBy);
+                new BigDecimal("50"), reason, payBy, null);
     }
 
     @Test
