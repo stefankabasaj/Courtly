@@ -27,7 +27,9 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, UUID> 
     @Query(value = "SELECT pg_try_advisory_xact_lock(:key)", nativeQuery = true)
     boolean tryLock(@Param("key") long key);
 
-    @Modifying
+    // a bulk DELETE skips the persistence context - clear it so nothing in
+    // this transaction keeps seeing rows that are already gone
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("DELETE FROM OutboxEvent e WHERE e.publishedAt < :before")
     int deletePublishedBefore(@Param("before") LocalDateTime before);
 }
