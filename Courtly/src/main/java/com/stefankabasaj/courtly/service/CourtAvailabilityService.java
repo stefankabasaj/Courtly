@@ -23,8 +23,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class CourtAvailabilityService {
 
-    private final CourtRepository        courtRepository;
-    private final BookingRepository      bookingRepository;
+    private final CourtRepository courtRepository;
+    private final BookingRepository bookingRepository;
     private final OpeningHoursProperties openingHours;
 
     @Transactional(readOnly = true)
@@ -35,25 +35,25 @@ public class CourtAvailabilityService {
             throw new BusinessException("Court '" + court.getName() + "' is not currently available for booking.");
         }
 
-        LocalDateTime opens  = openingHours.opensAt(date);
-        LocalDateTime closes = openingHours.closesAt(date);
-        // one query for the whole day, then check each hour in memory
-        List<Booking> taken  = bookingRepository.findActiveOverlapping(
-                courtId, opens, closes, Booking.BookingStatus.CANCELLED);
-        LocalDateTime now    = LocalDateTime.now();
+        LocalDateTime opensAt = openingHours.opensAt(date);
+        LocalDateTime closesAt = openingHours.closesAt(date);
+        // Load the day once instead of querying for every hourly slot.
+        List<Booking> overlappingBookings = bookingRepository.findActiveOverlapping(
+                courtId, opensAt, closesAt, Booking.BookingStatus.CANCELLED);
+        LocalDateTime now = LocalDateTime.now();
 
         List<Slot> slots = new ArrayList<>();
-        for (LocalDateTime start = opens; start.isBefore(closes); start = start.plusHours(1)) {
+        for (LocalDateTime start = opensAt; start.isBefore(closesAt); start = start.plusHours(1)) {
             LocalDateTime end = start.plusHours(1);
-            boolean available = start.isAfter(now) && !overlapsAny(start, end, taken);
+            boolean available = start.isAfter(now) && !overlapsAny(start, end, overlappingBookings);
             slots.add(new Slot(start, end, available));
         }
         return new CourtAvailabilityResponse(court.getId(), court.getName(), date, slots);
     }
 
-    // same rule as the database constraint: half-open ranges, so 10-12 and 12-13 don't overlap
+    // Half-open ranges allow adjacent slots, matching the database constraint.
     private static boolean overlapsAny(LocalDateTime start, LocalDateTime end, List<Booking> bookings) {
-        return bookings.stream().anyMatch(b ->
-                b.getStartTime().isBefore(end) && b.getEndTime().isAfter(start));
+        return bookings.stream().anyMatch(booking ->
+                booking.getStartTime().isBefore(end) && booking.getEndTime().isAfter(start));
     }
 }
