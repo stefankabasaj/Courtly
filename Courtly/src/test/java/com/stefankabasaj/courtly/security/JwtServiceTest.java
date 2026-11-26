@@ -63,4 +63,13 @@ class JwtServiceTest {
                 .isAfter(before.plusSeconds(3_598))
                 .isBefore(before.plusSeconds(3_602));
     }
+
+    @Test
+    @DisplayName("refuses the placeholder secret from .env.example")
+    void rejectsPlaceholderSecret() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> new JwtService(JwtService.PLACEHOLDER_SECRET, 3_600_000))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("placeholder");
+    }
 }

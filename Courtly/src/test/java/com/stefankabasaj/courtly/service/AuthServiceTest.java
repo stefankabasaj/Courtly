@@ -269,4 +269,15 @@ class AuthServiceTest {
         assertThat(metrics.counter("courtly.logins", "result", "failed").count()).isEqualTo(1.0);
         assertThat(metrics.counter("courtly.logins", "result", "blocked").count()).isEqualTo(1.0);
     }
+
+    @Test
+    @DisplayName("login - an unknown email still costs one BCrypt check, so timing doesn't reveal it")
+    void login_unknownEmail_stillHashes() {
+        when(userRepository.findByEmail("nobody@courtly.com")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.login(new LoginRequest("nobody@courtly.com", "wrong"), IP))
+                .isInstanceOf(BadCredentialsException.class);
+
+        verify(passwordEncoder).matches(eq("wrong"), anyString());
+    }
 }

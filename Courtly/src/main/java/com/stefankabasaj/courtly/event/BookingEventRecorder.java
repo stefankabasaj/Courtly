@@ -2,6 +2,7 @@ package com.stefankabasaj.courtly.event;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.stefankabasaj.courtly.config.AfterCommit;
 import com.stefankabasaj.courtly.config.BookingProperties;
 import com.stefankabasaj.courtly.config.RequestIdFilter;
 import com.stefankabasaj.courtly.entity.Booking;
@@ -68,8 +69,9 @@ public class BookingEventRecorder {
 
         // every booking state change goes through here, so this one counter covers them all:
         // courtly_bookings_total{event="created|confirmed|cancelled|expired"}
-        metrics.counter("courtly.bookings", "event",
-                type.name().substring("BOOKING_".length()).toLowerCase(Locale.ROOT)).increment();
+        // counted after commit, so a rolled-back change isn't counted
+        String name = type.name().substring("BOOKING_".length()).toLowerCase(Locale.ROOT);
+        AfterCommit.run(() -> metrics.counter("courtly.bookings", "event", name).increment());
     }
 
     private String toJson(BookingEvent event) {

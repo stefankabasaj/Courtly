@@ -94,6 +94,8 @@ app:
   booking:
     payment-timeout: ${BOOKING_PAYMENT_TIMEOUT:15m}
     expiry-check-interval-ms: ${BOOKING_EXPIRY_CHECK_INTERVAL_MS:60000}
+    # unpaid bookings one user can hold at once - see BookingService
+    max-pending-per-user: ${BOOKING_MAX_PENDING_PER_USER:3}
 
 server:
   port: ${SERVER_PORT:8080}

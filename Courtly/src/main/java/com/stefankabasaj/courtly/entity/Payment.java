@@ -26,6 +26,13 @@ public class Payment {
     @Column(updatable = false, nullable = false)
     private UUID id;
 
+    // optimistic lock: two concurrent payment attempts on a booking whose earlier attempt was
+    // declined both update this same row - without a version the last one silently wins,
+    // and a FAILED could overwrite a SUCCESS
+    @Version
+    @Column(nullable = false)
+    private Long version;
+
     // one payment per booking. the unique constraint is what actually guarantees it -
     // if something tries to charge twice the DB rejects the second insert
     @OneToOne(fetch = FetchType.LAZY)

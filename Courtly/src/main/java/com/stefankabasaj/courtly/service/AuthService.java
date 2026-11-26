@@ -33,6 +33,10 @@ public class AuthService {
     // BCrypt can't hash more than this, and newer Spring Security throws instead of truncating
     private static final int BCRYPT_MAX_BYTES = 72;
 
+    // a valid BCrypt hash (strength 12) checked for unknown emails, so they take as long as a
+    // wrong password and response time doesn't reveal which emails have accounts
+    private static final String DUMMY_HASH = "$2b$12$xG3s3s5rYZgu8ornxaJnfueA17n1dKUjbfbQ08hidfqBDApWgnT4.";
+
     private final UserRepository      userRepository;
     private final PasswordEncoder     passwordEncoder;
     private final JwtService          jwtService;
@@ -76,6 +80,11 @@ public class AuthService {
         // unknown email and wrong password count the same, so the limit doesn't
         // reveal which emails have accounts
         User user = userRepository.findByEmail(email).orElse(null);
+        if (user == null) {
+            if (MaxBytesValidator.utf8Length(request.password()) <= BCRYPT_MAX_BYTES) {
+                passwordEncoder.matches(request.password(), DUMMY_HASH);   // result ignored
+            }
+        }
         if (user == null || !passwordMatches(request.password(), user)) {
             loginAttempts.recordFailure(email, clientIp);
             countLogin("failed");

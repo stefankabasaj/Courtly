@@ -20,6 +20,7 @@ import com.stefankabasaj.courtly.repository.UserRepository;
 import com.stefankabasaj.courtly.security.AuthenticatedUser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -39,12 +40,21 @@ public class BookingService {
     // must cancel at least this many hours ahead
     private static final int CANCEL_NOTICE_HOURS = 2;
 
+    // unpaid bookings one user can hold at a time. without a cap, a script could keep
+    // rebooking every slot as soon as the previous hold expires
+    static final int DEFAULT_MAX_PENDING_PER_USER = 3;
+
     private final BookingRepository    bookingRepository;
     private final CourtRepository      courtRepository;
     private final UserRepository       userRepository;
     private final BookingValidator     bookingValidator;
     private final BookingEventRecorder events;
     private final BookingProperties    bookingProperties;
+
+    // not final on purpose: Spring fills it in, and unit tests that build the service by
+    // hand keep the default
+    @Value("${app.booking.max-pending-per-user:" + DEFAULT_MAX_PENDING_PER_USER + "}")
+    private int maxPendingPerUser = DEFAULT_MAX_PENDING_PER_USER;
 
     @Transactional
     public BookingResponse createBooking(UUID userId, BookingRequest request) {
@@ -65,6 +75,11 @@ public class BookingService {
         }
 
         bookingValidator.validateBookingTimes(request.startTime(), request.endTime());
+
+        if (bookingRepository.countByUserIdAndStatus(userId, Booking.BookingStatus.PENDING) >= maxPendingPerUser) {
+            throw new BusinessException("You already have " + maxPendingPerUser
+                    + " unpaid bookings. Pay for them or cancel one before booking more.");
+        }
 
         // app-level check first for a clean error message.
         // the exclusion constraint in the DB (V2 migration) catches the race-condition case

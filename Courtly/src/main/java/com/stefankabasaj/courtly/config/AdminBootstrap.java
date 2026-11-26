@@ -34,6 +34,9 @@ public class AdminBootstrap implements ApplicationRunner {
     static final int MIN_PASSWORD_LENGTH = 12;
     static final int MAX_PASSWORD_BYTES  = 72;   // BCrypt's limit
 
+    // the value from .env.example is public, so it must never become a real admin password
+    static final String PLACEHOLDER_PASSWORD = "change-me-to-a-long-random-password";
+
     private final AdminProperties adminProperties;
     private final UserRepository  userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -55,6 +58,10 @@ public class AdminBootstrap implements ApplicationRunner {
         if (password.length() < MIN_PASSWORD_LENGTH) {
             throw new IllegalStateException(
                     "ADMIN_PASSWORD must be at least " + MIN_PASSWORD_LENGTH + " characters.");
+        }
+        if (PLACEHOLDER_PASSWORD.equals(password)) {
+            throw new IllegalStateException(
+                    "ADMIN_PASSWORD is still the placeholder from .env.example. Generate one: openssl rand -base64 18");
         }
         if (password.getBytes(StandardCharsets.UTF_8).length > MAX_PASSWORD_BYTES) {
             throw new IllegalStateException(

@@ -43,6 +43,8 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
     )
     Page<Booking> findAllWithDetails(Pageable pageable);
 
+    long countByUserIdAndStatus(UUID userId, Booking.BookingStatus status);
+
     // overlap = startA < endB AND endA > startB. cancelled bookings don't count, the slot's free
     @Query("""
         SELECT COUNT(b) > 0

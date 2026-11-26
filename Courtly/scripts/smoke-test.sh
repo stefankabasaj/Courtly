@@ -32,6 +32,8 @@ export ADMIN_PASSWORD="$(openssl rand -hex 12)"
 # short enough not to drag the test out
 export BOOKING_PAYMENT_TIMEOUT=60s
 export BOOKING_EXPIRY_CHECK_INTERVAL_MS=2000
+# the test makes many bookings with one user; the per-user cap would get in the way
+export BOOKING_MAX_PENDING_PER_USER=1000
 # as if a frontend dev server ran on :3000
 export CORS_ALLOWED_ORIGINS=http://localhost:3000
 

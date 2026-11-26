@@ -24,6 +24,8 @@ curl http://localhost:8080/api/v1/health
 ```
 
 
+Edit `.env` before the first start: the app refuses to run with the placeholder `JWT_SECRET` or `ADMIN_PASSWORD` from `.env.example`.
+
 Admin account: set `ADMIN_EMAIL` and `ADMIN_PASSWORD` (at least 12 characters) in `.env` before the first start. The app creates the account on startup. No admin password is stored in the repository.
 
 
@@ -37,7 +39,7 @@ For more setup options see [docs/local-setup.md](docs/local-setup.md).
 - Spring Security with JWT (HMAC, signed with `JWT_SECRET`)
 - Spring Data JPA + Hibernate
 - PostgreSQL 16, Flyway migrations
-- Redis (login rate limit shared between instances)
+- Redis (login rate limit, idempotency keys; append-only file on a volume)
 - nginx in front of two app instances
 - Kafka + transactional outbox for booking events
 - `notification-service`: emails players from those events ([README](notification-service/README.md))
@@ -107,6 +109,8 @@ The payment gateway is simulated and approves about 90% of payments.
 Send an `Idempotency-Key` (e.g. a UUID made when the user clicks "pay") and a repeat of the same request - a double click, a retry after a timeout - gets the first answer back with `Idempotent-Replayed: true`, instead of a second attempt. To try again after a declined payment, use a new key.
 
 Players get an email when a booking is created, confirmed, cancelled or released. Locally they land in Mailpit: http://localhost:8025.
+
+A user can hold at most 3 unpaid (PENDING) bookings at once (`BOOKING_MAX_PENDING_PER_USER`).
 
 A booking has to be paid within `BOOKING_PAYMENT_TIMEOUT` (default 15 minutes) - the deadline is `payBy` in the booking response. Unpaid bookings are then cancelled automatically with the reason `Not paid in time`, which frees the slot.
 

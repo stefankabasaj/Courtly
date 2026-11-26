@@ -111,6 +111,21 @@ class BookingServiceTest {
             verify(events).record(any(), eq(BookingEventType.BOOKING_CREATED));
         }
 
+        @Test @DisplayName("user at the pending-bookings cap can't book more")
+        void tooManyPending() {
+            when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
+            when(courtRepository.findById(court.getId())).thenReturn(Optional.of(court));
+            when(bookingRepository.countByUserIdAndStatus(user.getId(), Booking.BookingStatus.PENDING))
+                    .thenReturn(3L);
+
+            assertThatThrownBy(() -> bookingService.createBooking(
+                    user.getId(), new BookingRequest(court.getId(), start, end)))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("unpaid bookings");
+            verify(bookingRepository, never()).saveAndFlush(any());
+            verifyNoInteractions(events);
+        }
+
         @Test @DisplayName("deactivated user can't book")
         void deactivatedUser() {
             user.setActive(false);

@@ -1,5 +1,6 @@
 package com.stefankabasaj.courtly.service;
 
+import com.stefankabasaj.courtly.config.AfterCommit;
 import com.stefankabasaj.courtly.config.BookingProperties;
 import com.stefankabasaj.courtly.dto.request.PaymentRequest;
 import com.stefankabasaj.courtly.dto.response.PaymentResponse;
@@ -82,12 +83,12 @@ public class PaymentService {
             booking.setStatus(Booking.BookingStatus.CONFIRMED);
             bookingRepository.save(booking);
             events.record(booking, BookingEventType.BOOKING_CONFIRMED);
-            metrics.counter("courtly.payments", "result", "success").increment();
+            AfterCommit.run(() -> metrics.counter("courtly.payments", "result", "success").increment());
             log.info("Payment SUCCESS bookingId={} amount={}", bookingId, payment.getAmount());
         } else {
             payment.setStatus(Payment.PaymentStatus.FAILED);
             payment.setFailureReason("Card declined (simulated)");
-            metrics.counter("courtly.payments", "result", "failed").increment();
+            AfterCommit.run(() -> metrics.counter("courtly.payments", "result", "failed").increment());
             log.warn("Payment FAILED bookingId={}", bookingId);
         }
 
