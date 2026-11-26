@@ -15,36 +15,32 @@ import org.springframework.stereotype.Component;
 import java.util.Optional;
 
 /**
- * One email per booking event.
- *
- * Order matters here: check -> send -> mark. Marking first and crashing before
- * the send would lose the email for good; this way a crash between the send
- * and the mark means one duplicate email, which is the better failure.
- *
- * Anything thrown goes to the error handler (KafkaConfig): a failed send is
- * retried, a message that can't be parsed goes straight to the DLT.
+ * Sends booking emails and records delivered event IDs.
+ * Check, send, then mark: a crash after sending can produce a duplicate, while
+ * marking before sending could lose an email. KafkaConfig handles retries and
+ * sends invalid messages to the dead-letter topic.
  */
 @Component
 public class BookingEventListener {
 
     private static final Logger log = LoggerFactory.getLogger(BookingEventListener.class);
 
-    private final ObjectMapper     objectMapper;
-    private final BookingEmails    emails;
-    private final ProcessedEvents  processed;
-    private final JavaMailSender   mailSender;
-    private final String           from;
-    private final MeterRegistry    metrics;
+    private final ObjectMapper objectMapper;
+    private final BookingEmails emails;
+    private final ProcessedEvents processedEvents;
+    private final JavaMailSender mailSender;
+    private final String from;
+    private final MeterRegistry metrics;
 
-    public BookingEventListener(ObjectMapper objectMapper, BookingEmails emails, ProcessedEvents processed,
+    public BookingEventListener(ObjectMapper objectMapper, BookingEmails emails, ProcessedEvents processedEvents,
                                 JavaMailSender mailSender, @Value("${app.mail.from}") String from,
                                 MeterRegistry metrics) {
         this.objectMapper = objectMapper;
-        this.emails       = emails;
-        this.processed    = processed;
-        this.mailSender   = mailSender;
-        this.from         = from;
-        this.metrics      = metrics;
+        this.emails = emails;
+        this.processedEvents = processedEvents;
+        this.mailSender = mailSender;
+        this.from = from;
+        this.metrics = metrics;
     }
 
     @KafkaListener(topics = "${app.events.topic}")
@@ -53,15 +49,15 @@ public class BookingEventListener {
         try {
             event = objectMapper.readValue(payload, BookingEvent.class);
         } catch (JsonProcessingException e) {
-            count("unknown", "invalid");
+            recordNotification("unknown", "invalid");
             throw e;
         }
         if (event.eventId() == null || event.type() == null) {
-            count("unknown", "invalid");
+            recordNotification("unknown", "invalid");
             throw new InvalidEventException("Event without eventId or type: " + payload);
         }
 
-        // same request id as the API's log lines for the request behind this event
+        // Correlate consumer logs with the API request that created the event.
         if (event.requestId() != null) {
             MDC.put("requestId", event.requestId());
         }
@@ -73,32 +69,32 @@ public class BookingEventListener {
     }
 
     private void handle(BookingEvent event) {
-        if (processed.alreadySent(event.eventId())) {
-            count(event.type(), "duplicate");
+        if (processedEvents.alreadySent(event.eventId())) {
+            recordNotification(event.type(), "duplicate");
             log.info("Already emailed event {} ({}), skipping the duplicate", event.eventId(), event.type());
             return;
         }
 
         Optional<Email> email = emails.compose(event);
         if (email.isEmpty()) {
-            count(event.type(), "ignored");
+            recordNotification(event.type(), "ignored");
             log.debug("No email for event type {}", event.type());
             return;
         }
 
+        Email notification = email.get();
         try {
-            mailSender.send(toMessage(email.get()));
+            mailSender.send(toMessage(notification));
         } catch (RuntimeException e) {
-            count(event.type(), "failed");
+            recordNotification(event.type(), "failed");
             throw e;
         }
-        processed.markSent(event.eventId());
-        count(event.type(), "sent");
-        log.info("Emailed {} for booking {} ({})", email.get().to(), event.bookingId(), event.type());
+        processedEvents.markSent(event.eventId());
+        recordNotification(event.type(), "sent");
+        log.info("Emailed {} for booking {} ({})", notification.to(), event.bookingId(), event.type());
     }
 
-    // courtly_notifications_total{type, result="sent|duplicate|ignored|failed|invalid"}
-    private void count(String type, String result) {
+    private void recordNotification(String type, String result) {
         metrics.counter("courtly.notifications", "type", type, "result", result).increment();
     }
 
