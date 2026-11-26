@@ -53,7 +53,7 @@ For more setup options see [docs/local-setup.md](docs/local-setup.md).
 
 All protected endpoints need `Authorization: Bearer <token>`.
 
-The full spec is generated from the code: Swagger UI at http://localhost:8080/swagger-ui.html, OpenAPI JSON at http://localhost:8080/v3/api-docs.
+The full spec is generated from the code: Swagger UI at http://localhost:8080/swagger-ui.html, OpenAPI JSON at http://localhost:8080/v3/api-docs. Both are off with the `prod` profile unless `API_DOCS_ENABLED=true`.
 
 Times are the courts' local time (`APP_TIMEZONE`, default `Europe/Belgrade`) and are sent without an offset, e.g. `2026-11-05T10:00:00`.
 
@@ -91,7 +91,7 @@ Times are the courts' local time (`APP_TIMEZONE`, default `Europe/Belgrade`) and
 | GET | `/api/v1/bookings/my` | user | own bookings |
 | GET | `/api/v1/bookings/{id}` | user/admin | users see own only |
 | PATCH | `/api/v1/bookings/{id}/cancel` | user | 2h notice, PENDING only |
-| PATCH | `/api/v1/bookings/{id}/admin-cancel` | admin | reason required |
+| PATCH | `/api/v1/bookings/{id}/admin-cancel` | admin | reason required. A paid booking's payment becomes `REFUNDED` |
 | GET | `/api/v1/bookings?page=0&size=20` | admin | all bookings, newest first, max 100 per page |
 
 
@@ -124,4 +124,6 @@ Missing or invalid token: 401. Valid token without the required role: 403. Datab
 
 Fields that are null are left out of responses (e.g. `cancellationReason` on a booking that wasn't cancelled).
 
-After 5 failed logins for one email, or 20 from one IP, within 15 minutes, login answers 429 with a `Retry-After` header until the window ends. That includes the right password, so the limit can't be used to confirm a guess.
+After 5 failed logins for one email from one IP, 20 for one email from all IPs together, or 20 from one IP, within 15 minutes, login answers 429 with a `Retry-After` header until the window ends. That includes the right password, so the limit can't be used to confirm a guess. Counting the 5 per IP means a stranger can't lock someone out of their account from their own machine.
+
+One IP can create at most 10 accounts per hour (`REGISTER_MAX_PER_IP`); after that `/auth/register` answers 429 with `Retry-After`.

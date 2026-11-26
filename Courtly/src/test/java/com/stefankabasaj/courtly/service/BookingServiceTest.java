@@ -9,6 +9,7 @@ import com.stefankabasaj.courtly.dto.response.BookingResponse;
 import com.stefankabasaj.courtly.dto.response.PageResponse;
 import com.stefankabasaj.courtly.entity.Booking;
 import com.stefankabasaj.courtly.entity.Court;
+import com.stefankabasaj.courtly.entity.Payment;
 import com.stefankabasaj.courtly.entity.User;
 import com.stefankabasaj.courtly.event.BookingEventRecorder;
 import com.stefankabasaj.courtly.event.BookingEventType;
@@ -17,6 +18,7 @@ import com.stefankabasaj.courtly.exception.ConflictException;
 import com.stefankabasaj.courtly.exception.ResourceNotFoundException;
 import com.stefankabasaj.courtly.repository.BookingRepository;
 import com.stefankabasaj.courtly.repository.CourtRepository;
+import com.stefankabasaj.courtly.repository.PaymentRepository;
 import com.stefankabasaj.courtly.repository.UserRepository;
 import com.stefankabasaj.courtly.security.AuthenticatedUser;
 import org.junit.jupiter.api.BeforeEach;
@@ -52,6 +54,7 @@ class BookingServiceTest {
     @Mock  BookingRepository bookingRepository;
     @Mock  CourtRepository   courtRepository;
     @Mock  UserRepository    userRepository;
+    @Mock  PaymentRepository paymentRepository;
     @Mock  BookingEventRecorder events;
     @Spy   BookingValidator  bookingValidator = new BookingValidator(new OpeningHoursProperties(7, 23));
     @Spy   BookingProperties bookingProperties = new BookingProperties(Duration.ofMinutes(15));
@@ -95,7 +98,7 @@ class BookingServiceTest {
 
         @Test @DisplayName("success - correct total price and duration")
         void success() {
-            when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
+            when(userRepository.findByIdForUpdate(user.getId())).thenReturn(Optional.of(user));
             when(courtRepository.findById(court.getId())).thenReturn(Optional.of(court));
             when(bookingRepository.existsOverlappingBooking(any(), any(), any())).thenReturn(false);
             when(bookingRepository.saveAndFlush(any())).thenAnswer(i -> i.getArgument(0));
@@ -113,7 +116,7 @@ class BookingServiceTest {
 
         @Test @DisplayName("user at the pending-bookings cap can't book more")
         void tooManyPending() {
-            when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
+            when(userRepository.findByIdForUpdate(user.getId())).thenReturn(Optional.of(user));
             when(courtRepository.findById(court.getId())).thenReturn(Optional.of(court));
             when(bookingRepository.countByUserIdAndStatus(user.getId(), Booking.BookingStatus.PENDING))
                     .thenReturn(3L);
@@ -129,7 +132,7 @@ class BookingServiceTest {
         @Test @DisplayName("deactivated user can't book")
         void deactivatedUser() {
             user.setActive(false);
-            when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
+            when(userRepository.findByIdForUpdate(user.getId())).thenReturn(Optional.of(user));
             when(courtRepository.findById(court.getId())).thenReturn(Optional.of(court));
 
             assertThatThrownBy(() -> bookingService.createBooking(
@@ -141,7 +144,7 @@ class BookingServiceTest {
 
         @Test @DisplayName("court not found → 404")
         void courtNotFound() {
-            when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
+            when(userRepository.findByIdForUpdate(user.getId())).thenReturn(Optional.of(user));
             when(courtRepository.findById(any())).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> bookingService.createBooking(
@@ -152,7 +155,7 @@ class BookingServiceTest {
         @Test @DisplayName("inactive court → BusinessException")
         void inactiveCourt() {
             court.setActive(false);
-            when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
+            when(userRepository.findByIdForUpdate(user.getId())).thenReturn(Optional.of(user));
             when(courtRepository.findById(court.getId())).thenReturn(Optional.of(court));
 
             assertThatThrownBy(() -> bookingService.createBooking(
@@ -163,7 +166,7 @@ class BookingServiceTest {
 
         @Test @DisplayName("time not on the hour → BusinessException")
         void notOnHour() {
-            when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
+            when(userRepository.findByIdForUpdate(user.getId())).thenReturn(Optional.of(user));
             when(courtRepository.findById(court.getId())).thenReturn(Optional.of(court));
 
             assertThatThrownBy(() -> bookingService.createBooking(
@@ -174,7 +177,7 @@ class BookingServiceTest {
 
         @Test @DisplayName("over 4h duration → BusinessException")
         void tooLong() {
-            when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
+            when(userRepository.findByIdForUpdate(user.getId())).thenReturn(Optional.of(user));
             when(courtRepository.findById(court.getId())).thenReturn(Optional.of(court));
 
             assertThatThrownBy(() -> bookingService.createBooking(
@@ -185,7 +188,7 @@ class BookingServiceTest {
 
         @Test @DisplayName("overlapping slot → ConflictException")
         void overlap() {
-            when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
+            when(userRepository.findByIdForUpdate(user.getId())).thenReturn(Optional.of(user));
             when(courtRepository.findById(court.getId())).thenReturn(Optional.of(court));
             when(bookingRepository.existsOverlappingBooking(any(), any(), any())).thenReturn(true);
 
@@ -352,6 +355,33 @@ class BookingServiceTest {
             assertThat(resp.status()).isEqualTo("CANCELLED");
             assertThat(resp.cancellationReason()).isEqualTo("Court maintenance");
             verify(events).record(booking, BookingEventType.BOOKING_CANCELLED);
+        }
+
+        @Test @DisplayName("admin cancelling a paid booking refunds the payment")
+        void adminCancelRefunds() {
+            Booking booking = buildBooking(Booking.BookingStatus.CONFIRMED);
+            Payment payment = Payment.builder().id(UUID.randomUUID()).booking(booking)
+                    .amount(new BigDecimal("50.00")).paymentMethod("CREDIT_CARD")
+                    .status(Payment.PaymentStatus.SUCCESS).build();
+            when(bookingRepository.findByIdWithDetails(booking.getId())).thenReturn(Optional.of(booking));
+            when(paymentRepository.findByBookingId(booking.getId())).thenReturn(Optional.of(payment));
+            when(bookingRepository.saveAndFlush(any())).thenAnswer(i -> i.getArgument(0));
+
+            bookingService.adminCancelBooking(booking.getId(), new AdminCancelRequest("Court maintenance"));
+
+            assertThat(payment.getStatus()).isEqualTo(Payment.PaymentStatus.REFUNDED);
+            verify(paymentRepository).save(payment);
+        }
+
+        @Test @DisplayName("admin cancelling an unpaid booking touches no payment")
+        void adminCancelPendingNoRefund() {
+            Booking booking = buildBooking(Booking.BookingStatus.PENDING);
+            when(bookingRepository.findByIdWithDetails(booking.getId())).thenReturn(Optional.of(booking));
+            when(bookingRepository.saveAndFlush(any())).thenAnswer(i -> i.getArgument(0));
+
+            bookingService.adminCancelBooking(booking.getId(), new AdminCancelRequest("Court maintenance"));
+
+            verifyNoInteractions(paymentRepository);
         }
 
         @Test @DisplayName("already cancelled → BusinessException")

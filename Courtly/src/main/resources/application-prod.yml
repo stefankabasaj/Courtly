@@ -5,6 +5,12 @@ spring:
   jpa:
     show-sql: false
 
+springdoc:
+  api-docs:
+    enabled: ${API_DOCS_ENABLED:false}
+  swagger-ui:
+    enabled: ${API_DOCS_ENABLED:false}
+
 logging:
   level:
     com.stefankabasaj.courtly: INFO

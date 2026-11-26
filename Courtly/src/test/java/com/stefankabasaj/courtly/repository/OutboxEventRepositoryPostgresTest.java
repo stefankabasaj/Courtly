@@ -34,11 +34,12 @@ class OutboxEventRepositoryPostgresTest extends PostgresRepositoryTest {
     }
 
     @Test
-    @DisplayName("findUnpublished - unpublished only, oldest first, up to the limit")
-    void unpublishedOldestFirst() {
+    @DisplayName("findUnpublished - unpublished only, in insert order (not created_at), up to the limit")
+    void unpublishedInInsertOrder() {
         LocalDateTime now = LocalDateTime.now();
-        OutboxEvent second = outbox.saveAndFlush(event(now.minusMinutes(1), null));
-        OutboxEvent first  = outbox.saveAndFlush(event(now.minusMinutes(2), null));
+        OutboxEvent first  = outbox.saveAndFlush(event(now.minusMinutes(1), null));
+        // written later by a replica whose clock is behind - still goes after `first`
+        OutboxEvent second = outbox.saveAndFlush(event(now.minusMinutes(2), null));
         outbox.saveAndFlush(event(now.minusMinutes(3), now));   // already sent
         OutboxEvent third  = outbox.saveAndFlush(event(now, null));
 
@@ -98,7 +99,7 @@ class OutboxEventRepositoryPostgresTest extends PostgresRepositoryTest {
     @Test
     @DisplayName("the whole schema matches the entities (Hibernate validate on real Flyway migrations)")
     void schemaValidates() {
-        // getting here means the context started: Flyway ran V1-V5 and
+        // getting here means the context started: Flyway ran every migration and
         // ddl-auto=validate found every entity's columns. one cheap query to be sure
         assertThat(outbox.findUnpublished(1)).isNotNull();
     }

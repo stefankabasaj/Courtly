@@ -18,7 +18,7 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, UUID> 
     @Query(value = """
         SELECT * FROM courtly.outbox_events
         WHERE published_at IS NULL
-        ORDER BY created_at
+        ORDER BY seq
         LIMIT :limit
         """, nativeQuery = true)
     List<OutboxEvent> findUnpublished(@Param("limit") int limit);

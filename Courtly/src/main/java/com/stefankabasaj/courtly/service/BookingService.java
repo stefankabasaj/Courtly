@@ -8,6 +8,7 @@ import com.stefankabasaj.courtly.dto.response.BookingResponse;
 import com.stefankabasaj.courtly.dto.response.PageResponse;
 import com.stefankabasaj.courtly.entity.Booking;
 import com.stefankabasaj.courtly.entity.Court;
+import com.stefankabasaj.courtly.entity.Payment;
 import com.stefankabasaj.courtly.entity.User;
 import com.stefankabasaj.courtly.event.BookingEventRecorder;
 import com.stefankabasaj.courtly.event.BookingEventType;
@@ -16,6 +17,7 @@ import com.stefankabasaj.courtly.exception.ConflictException;
 import com.stefankabasaj.courtly.exception.ResourceNotFoundException;
 import com.stefankabasaj.courtly.repository.BookingRepository;
 import com.stefankabasaj.courtly.repository.CourtRepository;
+import com.stefankabasaj.courtly.repository.PaymentRepository;
 import com.stefankabasaj.courtly.repository.UserRepository;
 import com.stefankabasaj.courtly.security.AuthenticatedUser;
 import lombok.RequiredArgsConstructor;
@@ -47,6 +49,7 @@ public class BookingService {
     private final BookingRepository    bookingRepository;
     private final CourtRepository      courtRepository;
     private final UserRepository       userRepository;
+    private final PaymentRepository    paymentRepository;
     private final BookingValidator     bookingValidator;
     private final BookingEventRecorder events;
     private final BookingProperties    bookingProperties;
@@ -60,7 +63,9 @@ public class BookingService {
     public BookingResponse createBooking(UUID userId, BookingRequest request) {
         log.info("Creating booking userId={} courtId={}", userId, request.courtId());
 
-        User  user  = userRepository.findById(userId)
+        // row lock on the user: two bookings sent at once would otherwise both see
+        // "2 pending" and both pass the cap. it's only this user's own requests that wait
+        User  user  = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", userId));
         Court court = courtRepository.findById(request.courtId())
                 .orElseThrow(() -> new ResourceNotFoundException("Court", request.courtId()));
@@ -184,6 +189,18 @@ public class BookingService {
 
         if (booking.getStatus() == Booking.BookingStatus.CANCELLED) {
             throw new BusinessException("This booking is already cancelled.");
+        }
+
+        // a paid booking cancelled by the venue gets its money back. the gateway is
+        // simulated, so the refund is just the status - a real one would call it here
+        if (booking.getStatus() == Booking.BookingStatus.CONFIRMED) {
+            paymentRepository.findByBookingId(bookingId)
+                    .filter(p -> p.getStatus() == Payment.PaymentStatus.SUCCESS)
+                    .ifPresent(p -> {
+                        p.setStatus(Payment.PaymentStatus.REFUNDED);
+                        paymentRepository.save(p);
+                        log.info("Payment {} refunded for admin-cancelled booking {}", p.getId(), bookingId);
+                    });
         }
 
         booking.setStatus(Booking.BookingStatus.CANCELLED);

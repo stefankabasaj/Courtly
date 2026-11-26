@@ -22,10 +22,12 @@ public class AuthController {
 
     private final AuthService authService;
 
+    // remote address for the per-IP registration limit - same reasoning as login below
     @PostMapping("/register")
-    public ResponseEntity<UserResponse> register(@Valid @RequestBody RegisterRequest request) {
+    public ResponseEntity<UserResponse> register(
+            @Valid @RequestBody RegisterRequest request, HttpServletRequest httpRequest) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(authService.register(request));
+                .body(authService.register(request, httpRequest.getRemoteAddr()));
     }
 
     // remote address, not X-Forwarded-For: that header is set by the client and

@@ -49,7 +49,7 @@ class AuthControllerTest {
         UserResponse    res = new UserResponse(UUID.randomUUID(), "stefan@courtly.com",
                 "USER", true, LocalDateTime.now());
 
-        when(authService.register(any())).thenReturn(res);
+        when(authService.register(any(), any())).thenReturn(res);
 
         mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -75,7 +75,7 @@ class AuthControllerTest {
     @DisplayName("POST /auth/register - 409 when email taken")
     void register_duplicate_returns409() throws Exception {
         RegisterRequest req = new RegisterRequest("stefan@courtly.com", "Password1!");
-        when(authService.register(any()))
+        when(authService.register(any(), any()))
                 .thenThrow(new ConflictException("Email already registered"));
 
         mockMvc.perform(post("/api/v1/auth/register")
@@ -166,7 +166,7 @@ class AuthControllerTest {
     @DisplayName("POST /auth/register - accented password within 72 bytes is fine")
     void register_accentedPassword_returns201() throws Exception {
         RegisterRequest req = new RegisterRequest("stefan@courtly.com", "čćšđž-lozinka-1");
-        when(authService.register(any())).thenReturn(new UserResponse(
+        when(authService.register(any(), any())).thenReturn(new UserResponse(
                 UUID.randomUUID(), "stefan@courtly.com", "USER", true, LocalDateTime.now()));
 
         mockMvc.perform(post("/api/v1/auth/register")

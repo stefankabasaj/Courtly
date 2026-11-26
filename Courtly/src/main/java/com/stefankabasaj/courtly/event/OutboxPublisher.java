@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit;
  *
  * Only one instance publishes at a time (advisory lock). With two instances
  * each grabbing a batch, BOOKING_CONFIRMED could reach Kafka before the
- * BOOKING_CREATED it follows. One publisher sending oldest-first, keyed by
+ * BOOKING_CREATED it follows. One publisher sending in insert order (seq), keyed by
  * booking id, keeps every booking's events in order.
  */
 @Slf4j

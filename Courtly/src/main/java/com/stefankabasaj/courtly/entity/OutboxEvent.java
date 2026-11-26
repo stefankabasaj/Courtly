@@ -34,6 +34,12 @@ public class OutboxEvent implements Persistable<UUID> {
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    // filled in by the database (V8) - the order events are sent in. created_at
+    // comes from whichever replica wrote the row, so two replicas' clocks being a
+    // little apart could put a booking's CONFIRMED before its CREATED
+    @Column(name = "seq", insertable = false, updatable = false)
+    private Long seq;
+
     // null until it's been sent to Kafka
     @Column(name = "published_at")
     private LocalDateTime publishedAt;

@@ -13,6 +13,7 @@ import com.stefankabasaj.courtly.repository.UserRepository;
 import com.stefankabasaj.courtly.security.IssuedToken;
 import com.stefankabasaj.courtly.security.JwtService;
 import com.stefankabasaj.courtly.security.LoginAttemptService;
+import com.stefankabasaj.courtly.security.RegistrationLimiter;
 import com.stefankabasaj.courtly.validation.MaxBytesValidator;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
@@ -41,12 +42,16 @@ public class AuthService {
     private final PasswordEncoder     passwordEncoder;
     private final JwtService          jwtService;
     private final LoginAttemptService loginAttempts;
+    private final RegistrationLimiter registrationLimiter;
     private final MeterRegistry       metrics;
 
     @Transactional
-    public UserResponse register(RegisterRequest request) {
+    public UserResponse register(RegisterRequest request, String clientIp) {
         String email = normalize(request.email());
         log.info("Registering user email={}", email);
+
+        // before the DB and BCrypt, like the login limit
+        registrationLimiter.checkAndRecord(clientIp);
 
         if (userRepository.existsByEmail(email)) {
             throw new ConflictException("An account with this email already exists.");
@@ -90,7 +95,7 @@ public class AuthService {
             countLogin("failed");
             throw new BadCredentialsException("Invalid email or password");
         }
-        loginAttempts.recordSuccess(email);
+        loginAttempts.recordSuccess(email, clientIp);
 
         // after the password check, so only the account owner learns it was deactivated
         if (!user.isActive()) {

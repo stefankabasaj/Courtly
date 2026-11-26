@@ -64,6 +64,7 @@ public class Payment {
     public enum PaymentStatus {
         PENDING,
         SUCCESS,
-        FAILED
+        FAILED,
+        REFUNDED    // the booking was paid, then cancelled by an admin
     }
 }
