@@ -115,4 +115,22 @@ class BookingEventRecorderTest {
         assertThat(payload.get("reason").asText()).isEqualTo("Court maintenance");
         assertThat(payload.get("payBy").isNull()).isTrue();
     }
+
+    @Test
+    @DisplayName("CANCELLED with a refund - the payload says so; without one it doesn't")
+    void cancelledRefunded() throws Exception {
+        booking.setStatus(Booking.BookingStatus.CANCELLED);
+        booking.setCancellationReason("Court flooded");
+
+        recorder.record(booking, BookingEventType.BOOKING_CANCELLED, true);
+        assertThat(json.readTree(saved().getPayload()).get("refunded").asBoolean()).isTrue();
+    }
+
+    @Test
+    @DisplayName("an event without a refund doesn't claim one")
+    void notRefunded() throws Exception {
+        recorder.record(booking, BookingEventType.BOOKING_CANCELLED);
+        JsonNode refunded = json.readTree(saved().getPayload()).get("refunded");
+        assertThat(refunded == null || refunded.isNull()).isTrue();
+    }
 }

@@ -24,5 +24,6 @@ public record BookingEvent(
         BigDecimal totalPrice,
         String reason,          // CANCELLED and EXPIRED only
         LocalDateTime payBy,    // CREATED only
-        String requestId        // the API request that caused it, for following it through the logs. null for jobs
+        String requestId,       // the API request that caused it, for following it through the logs. null for jobs
+        Boolean refunded        // CANCELLED only: true when the payment was refunded, otherwise left out
 ) {}

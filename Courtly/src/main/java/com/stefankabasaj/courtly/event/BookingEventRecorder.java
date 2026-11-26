@@ -39,6 +39,12 @@ public class BookingEventRecorder {
 
     @Transactional(propagation = Propagation.MANDATORY)
     public void record(Booking booking, BookingEventType type) {
+        record(booking, type, false);
+    }
+
+    /** refunded: the booking was paid and the money goes back - the cancellation email says so. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void record(Booking booking, BookingEventType type, boolean refunded) {
         UUID          eventId = UUID.randomUUID();
         LocalDateTime now     = LocalDateTime.now();
 
@@ -56,7 +62,9 @@ public class BookingEventRecorder {
                         ? booking.getCancellationReason() : null,
                 type == BookingEventType.BOOKING_CREATED && booking.getCreatedAt() != null
                         ? bookingProperties.payBy(booking.getCreatedAt()) : null,
-                MDC.get(RequestIdFilter.MDC_KEY)
+                MDC.get(RequestIdFilter.MDC_KEY),
+                // null rather than false, so the field only appears when it means something
+                refunded ? Boolean.TRUE : null
         );
 
         outbox.save(OutboxEvent.builder()

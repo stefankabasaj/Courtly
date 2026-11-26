@@ -48,9 +48,9 @@ public class BookingEmails {
                     Your booking has been cancelled.
 
                     %s
-                    %s
+                    %s%s
                     Courtly
-                    """.formatted(details(e), reasonLine(e)));
+                    """.formatted(details(e), reasonLine(e), refundLine(e)));
 
             case "BOOKING_EXPIRED" -> email(e, "Booking released", """
                     Hi,
@@ -92,6 +92,15 @@ public class BookingEmails {
 
     private String reasonLine(BookingEvent e) {
         return e.reason() == null || e.reason().isBlank() ? "" : "\nReason: " + e.reason() + "\n";
+    }
+
+    private String refundLine(BookingEvent e) {
+        if (!Boolean.TRUE.equals(e.refunded())) {
+            return "";
+        }
+        String amount = price(e.totalPrice());
+        return "\nYour payment" + (amount.isEmpty() ? "" : " of " + amount)
+                + " is being refunded to the card you paid with.\n";
     }
 
     private static String price(BigDecimal amount) {

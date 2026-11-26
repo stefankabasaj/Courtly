@@ -354,7 +354,7 @@ class BookingServiceTest {
 
             assertThat(resp.status()).isEqualTo("CANCELLED");
             assertThat(resp.cancellationReason()).isEqualTo("Court maintenance");
-            verify(events).record(booking, BookingEventType.BOOKING_CANCELLED);
+            verify(events).record(booking, BookingEventType.BOOKING_CANCELLED, false);   // no payment row here
         }
 
         @Test @DisplayName("admin cancelling a paid booking refunds the payment")
@@ -371,6 +371,7 @@ class BookingServiceTest {
 
             assertThat(payment.getStatus()).isEqualTo(Payment.PaymentStatus.REFUNDED);
             verify(paymentRepository).save(payment);
+            verify(events).record(booking, BookingEventType.BOOKING_CANCELLED, true);
         }
 
         @Test @DisplayName("admin cancelling an unpaid booking touches no payment")

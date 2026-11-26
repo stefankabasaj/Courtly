@@ -193,14 +193,17 @@ public class BookingService {
 
         // a paid booking cancelled by the venue gets its money back. the gateway is
         // simulated, so the refund is just the status - a real one would call it here
+        boolean refunded = false;
         if (booking.getStatus() == Booking.BookingStatus.CONFIRMED) {
-            paymentRepository.findByBookingId(bookingId)
+            Payment payment = paymentRepository.findByBookingId(bookingId)
                     .filter(p -> p.getStatus() == Payment.PaymentStatus.SUCCESS)
-                    .ifPresent(p -> {
-                        p.setStatus(Payment.PaymentStatus.REFUNDED);
-                        paymentRepository.save(p);
-                        log.info("Payment {} refunded for admin-cancelled booking {}", p.getId(), bookingId);
-                    });
+                    .orElse(null);
+            if (payment != null) {
+                payment.setStatus(Payment.PaymentStatus.REFUNDED);
+                paymentRepository.save(payment);
+                refunded = true;
+                log.info("Payment {} refunded for admin-cancelled booking {}", payment.getId(), bookingId);
+            }
         }
 
         booking.setStatus(Booking.BookingStatus.CANCELLED);
@@ -208,7 +211,7 @@ public class BookingService {
 
         // flush so updatedAt in the response is the new one
         Booking saved = bookingRepository.saveAndFlush(booking);
-        events.record(saved, BookingEventType.BOOKING_CANCELLED);
+        events.record(saved, BookingEventType.BOOKING_CANCELLED, refunded);
         log.info("Booking {} admin-cancelled", bookingId);
         return toResponse(saved);
     }
