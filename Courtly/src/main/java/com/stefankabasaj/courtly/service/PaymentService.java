@@ -41,7 +41,7 @@ public class PaymentService {
     public PaymentResponse processPayment(UUID bookingId, UUID payerId, PaymentRequest request) {
         log.info("Processing payment bookingId={} payerId={}", bookingId, payerId);
 
-        Booking booking = bookingRepository.findByIdWithDetails(bookingId)
+        Booking booking = bookingRepository.findByIdForPayment(bookingId)
                 .orElseThrow(() -> new ResourceNotFoundException("Booking", bookingId));
 
         // Hide bookings that belong to another user.
