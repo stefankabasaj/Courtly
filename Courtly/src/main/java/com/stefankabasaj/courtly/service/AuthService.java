@@ -31,23 +31,23 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class AuthService {
 
-    // BCrypt can't hash more than this, and newer Spring Security throws instead of truncating
+    // BCrypt limits passwords by UTF-8 bytes, not characters.
     private static final int BCRYPT_MAX_BYTES = 72;
 
-    // a valid BCrypt hash (strength 12) checked for unknown emails, so they take as long as a
-    // wrong password and response time doesn't reveal which emails have accounts
+    // A real BCrypt hash (strength 12) checked for unknown emails, so they take as long
+    // as a wrong password and response time doesn't reveal which emails have accounts.
     private static final String DUMMY_HASH = "$2b$12$xG3s3s5rYZgu8ornxaJnfueA17n1dKUjbfbQ08hidfqBDApWgnT4.";
 
-    private final UserRepository      userRepository;
-    private final PasswordEncoder     passwordEncoder;
-    private final JwtService          jwtService;
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final JwtService jwtService;
     private final LoginAttemptService loginAttempts;
     private final RegistrationLimiter registrationLimiter;
-    private final MeterRegistry       metrics;
+    private final MeterRegistry metrics;
 
     @Transactional
     public UserResponse register(RegisterRequest request, String clientIp) {
-        String email = normalize(request.email());
+        String email = normalizeEmail(request.email());
         log.info("Registering user email={}", email);
 
         // before the DB and BCrypt, like the login limit
@@ -63,7 +63,7 @@ public class AuthService {
                 .role(User.Role.USER)
                 .build();
 
-        // flush so createdAt (set by Hibernate at the INSERT) is in the response
+        // Populate the generated timestamp before building the response.
         User saved = userRepository.saveAndFlush(user);
         log.info("User registered id={}", saved.getId());
         return toResponse(saved);
@@ -71,10 +71,10 @@ public class AuthService {
 
     @Transactional(readOnly = true)
     public AuthResponse login(LoginRequest request, String clientIp) {
-        String email = normalize(request.email());
+        String email = normalizeEmail(request.email());
         log.debug("Login attempt email={} ip={}", email, clientIp);
 
-        // before touching the DB or BCrypt, so a blocked attacker costs us nothing
+        // Reject blocked attempts before the database lookup and password hash check.
         try {
             loginAttempts.checkAllowed(email, clientIp);
         } catch (TooManyRequestsException e) {
@@ -82,8 +82,7 @@ public class AuthService {
             throw e;
         }
 
-        // unknown email and wrong password count the same, so the limit doesn't
-        // reveal which emails have accounts
+        // Use the same failure response and counters for unknown emails and wrong passwords.
         User user = userRepository.findByEmail(email).orElse(null);
         if (user == null) {
             if (MaxBytesValidator.utf8Length(request.password()) <= BCRYPT_MAX_BYTES) {
@@ -97,7 +96,7 @@ public class AuthService {
         }
         loginAttempts.recordSuccess(email, clientIp);
 
-        // after the password check, so only the account owner learns it was deactivated
+        // Only reveal deactivation after verifying the password.
         if (!user.isActive()) {
             throw new BusinessException("This account has been deactivated. Please contact support.");
         }
@@ -108,7 +107,7 @@ public class AuthService {
         return AuthResponse.of(token.token(), token.expiresAt(), user.getEmail(), user.getRole().name());
     }
 
-    // from the DB, not the token - so a deactivated account shows up as such
+    // Read current account status rather than the token's snapshot.
     @Transactional(readOnly = true)
     public UserResponse currentUser(UUID userId) {
         return userRepository.findById(userId)
@@ -116,20 +115,18 @@ public class AuthService {
                 .orElseThrow(() -> new ResourceNotFoundException("User", userId));
     }
 
-    // courtly_logins_total{result="success|failed|blocked"} - a jump in failed/blocked is someone guessing
     private void countLogin(String result) {
         metrics.counter("courtly.logins", "result", result).increment();
     }
 
-    // a password BCrypt can't even hash can't be anyone's password - just a failed login, not a 500
-    private boolean passwordMatches(String raw, User user) {
-        return MaxBytesValidator.utf8Length(raw) <= BCRYPT_MAX_BYTES
-                && passwordEncoder.matches(raw, user.getPasswordHash());
+    // Treat oversized passwords as invalid credentials instead of a hashing error.
+    private boolean passwordMatches(String rawPassword, User user) {
+        return MaxBytesValidator.utf8Length(rawPassword) <= BCRYPT_MAX_BYTES
+                && passwordEncoder.matches(rawPassword, user.getPasswordHash());
     }
 
-    // normalize so casing / stray spaces don't create duplicate accounts
-    // Locale.ROOT: the default locale breaks lowercasing (Turkish "I" becomes a dotless i)
-    private String normalize(String email) {
+    // Locale.ROOT keeps email normalization independent of the server locale.
+    private String normalizeEmail(String email) {
         return email.trim().toLowerCase(Locale.ROOT);
     }
 

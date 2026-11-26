@@ -32,11 +32,11 @@ import java.util.concurrent.TimeUnit;
 @RequiredArgsConstructor
 public class OutboxPublisher {
 
-    static final int  BATCH_SIZE    = 100;
-    static final long LOCK_KEY      = 4_201_001L;   // any constant, just has to be the same everywhere
+    static final int BATCH_SIZE = 100;
+    static final long LOCK_KEY = 4_201_001L;   // Shared by every API instance.
     static final Duration KEEP_SENT = Duration.ofDays(7);
 
-    private final OutboxEventRepository        outbox;
+    private final OutboxEventRepository outbox;
     private final KafkaTemplate<String, String> kafka;
 
     @Value("${app.events.topic}")
@@ -46,21 +46,20 @@ public class OutboxPublisher {
     @Transactional
     public void publishPending() {
         if (!outbox.tryLock(LOCK_KEY)) {
-            return;   // the other instance is on it
+            return;
         }
 
         List<OutboxEvent> batch = outbox.findUnpublished(BATCH_SIZE);
         for (OutboxEvent event : batch) {
             try {
-                // wait for the ack - marking it published on a send that later fails would lose the event
+                // Mark published only after Kafka acknowledges the send.
                 kafka.send(topic, event.getAggregateId().toString(), event.getPayload())
                         .get(10, TimeUnit.SECONDS);
             } catch (Exception e) {
                 if (e instanceof InterruptedException) {
                     Thread.currentThread().interrupt();
                 }
-                // stop here and keep what's been sent so far. later rows stay
-                // unpublished, so nothing jumps ahead of the one that failed
+                // Leave later events pending so they cannot overtake the failed event.
                 log.warn("Kafka send failed for event {} ({}), retrying next run: {}",
                         event.getId(), event.getEventType(), e.getMessage());
                 return;
@@ -73,7 +72,7 @@ public class OutboxPublisher {
         }
     }
 
-    // sent rows are only kept for debugging - a week is plenty
+    // Retain published events temporarily for troubleshooting.
     @Scheduled(fixedDelay = 60 * 60 * 1000)
     @Transactional
     public void deleteOldSent() {

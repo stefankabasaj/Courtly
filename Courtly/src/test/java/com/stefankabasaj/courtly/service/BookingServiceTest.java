@@ -275,7 +275,7 @@ class BookingServiceTest {
 
             assertThat(resp.status()).isEqualTo("CANCELLED");
             assertThat(resp.cancellationReason()).isEqualTo("Too busy");
-            verify(events).record(booking, BookingEventType.BOOKING_CANCELLED);
+            verify(events).record(booking, BookingEventType.BOOKING_CANCELLED, false);
         }
 
         @Test @DisplayName("non-owner cannot cancel → 404")

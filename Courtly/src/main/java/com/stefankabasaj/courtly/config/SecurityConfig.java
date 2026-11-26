@@ -34,11 +34,10 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthFilter;
-    private final CorsProperties          corsProperties;
+    private final CorsProperties corsProperties;
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http, ObjectMapper objectMapper) throws Exception {
-        // JSON bodies for 401/403 raised inside the filter chain
         var errorHandler = new ApiSecurityErrorHandler(objectMapper);
 
         return http
@@ -47,31 +46,30 @@ public class SecurityConfig {
 
                 // off unless CORS_ALLOWED_ORIGINS is set. behind one domain (nginx, or the
                 // frontend proxying /api) the browser never makes a cross-origin call
-                .cors(c -> {
+                .cors(cors -> {
                     if (corsProperties.enabled()) {
-                        c.configurationSource(corsSource());
+                        cors.configurationSource(corsSource());
                     } else {
-                        c.disable();
+                        cors.disable();
                     }
                 })
 
                 // fully stateless - no HttpSession, so any instance can serve any request
-                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 
-                // a few sensible security headers
-                .headers(h -> h
-                        .frameOptions(fo -> fo.deny())
-                        .contentTypeOptions(cto -> {})
-                        .referrerPolicy(rp -> rp.policy(
+                .headers(headers -> headers
+                        .frameOptions(frameOptions -> frameOptions.deny())
+                        .contentTypeOptions(contentTypeOptions -> {})
+                        .referrerPolicy(referrerPolicy -> referrerPolicy.policy(
                                 ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
                 )
 
-                .exceptionHandling(e -> e
+                .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint(errorHandler)
                         .accessDeniedHandler(errorHandler)
                 )
 
-                .authorizeHttpRequests(auth -> auth
+                .authorizeHttpRequests(requests -> requests
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         .requestMatchers("/api/v1/health").permitAll()
                         .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()
@@ -109,7 +107,7 @@ public class SecurityConfig {
 
     @Bean
     public PasswordEncoder passwordEncoder() {
-        // strength 12 ~= 250ms per hash. slow enough to hurt brute force, fast enough nobody notices at login
+        // BCrypt work factor; hashing time depends on the deployment hardware.
         return new BCryptPasswordEncoder(12);
     }
 }

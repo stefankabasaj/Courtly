@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="400" viewBox="0 0 1280 400" role="img" aria-labelledby="title desc">
+  <title id="title">Courtly — Tennis court booking API</title>
+  <desc id="desc">Courtly wordmark on a near-black cover with a pink geometric tennis court.</desc>
+  <defs><clipPath id="court"><rect x="810" y="0" width="470" height="400"/></clipPath></defs>
+  <rect width="1280" height="400" fill="#111114"/>
+  <g font-family="Arial, Helvetica, sans-serif">
+    <text x="60" y="59" fill="#F3B8CB" font-size="13" letter-spacing="3">ENGINEERED FOR THE COURT</text>
+    <text x="53" y="206" fill="#FAF7F8" font-size="130" font-weight="700" letter-spacing="-7">Courtly.</text>
+    <text x="60" y="260" fill="#C5C0C5" font-size="23">Tennis court booking API</text>
+    <path d="M60 310H735" stroke="#363239"/>
+    <text x="60" y="348" fill="#F3B8CB" font-size="13" letter-spacing="1.4">JAVA 21 / SPRING BOOT / POSTGRESQL</text>
+  </g>
+  <g clip-path="url(#court)">
+    <path d="M810 0H1280V400H810Z" fill="#F3B8CB"/>
+    <g transform="translate(1055 200) rotate(-18)" fill="none" stroke="#111114" stroke-width="2" opacity=".78">
+      <rect x="-150" y="-255" width="300" height="510"/>
+      <path d="M-115-255V255M115-255V255M-150 0H150M-115-115H115M-115 115H115M0-115V115"/>
+      <path d="M-170 0H170" stroke-width="5"/>
+    </g>
+    <circle cx="1110" cy="92" r="23" fill="#111114"/>
+    <path d="M1093 77Q1114 92 1094 109M1126 76Q1107 92 1126 108" fill="none" stroke="#F3B8CB" stroke-width="1.5"/>
+  </g>
+</svg>
