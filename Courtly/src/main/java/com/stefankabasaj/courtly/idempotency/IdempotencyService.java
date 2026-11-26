@@ -13,39 +13,27 @@ import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
 /**
- * Idempotency keys, the way Stripe does them. The client sends a key it made
- * up (a UUID) with a request that must not happen twice - a payment. If the
- * same request comes again with the same key (a double click, a retry after a
- * timeout when the client never saw the answer), it gets the first answer back
- * instead of a second payment attempt.
- *
- * In Redis, per user:
- *   - claimed with SET NX before running, so two copies arriving at once can't both run
- *   - the claim expires after a minute, so a crash mid-request doesn't block the key for a day
- *   - the result is kept 24h after it's done
- *   - if the request fails, the claim is dropped and the same key can be retried
- *
- * Same key, different request (another booking) is refused rather than
- * replayed - that's a client bug, and replaying would hide it.
+ * Claims a request key in Redis and replays its completed response on retries.
+ * Keys are scoped per caller and checked against a request fingerprint. An
+ * unfinished claim expires after one minute; completed responses live for 24 hours.
  */
 @Component
 @RequiredArgsConstructor
 public class IdempotencyService {
 
-    static final String   KEY_PREFIX      = "courtly:idempotency:";
+    static final String KEY_PREFIX = "courtly:idempotency:";
     static final Duration IN_PROGRESS_TTL = Duration.ofMinutes(1);
-    static final Duration RESULT_TTL      = Duration.ofHours(24);
+    static final Duration RESULT_TTL = Duration.ofHours(24);
 
     private static final Pattern VALID_KEY = Pattern.compile("[A-Za-z0-9_-]{8,100}");
 
     private final StringRedisTemplate redis;
-    private final ObjectMapper        objectMapper;
+    private final ObjectMapper objectMapper;
 
     public record Outcome<T>(T result, boolean replayed) {}
 
-    // what's stored under the key: which request it was for, and its result once there is one
     record Entry(String fingerprint, String result) {
-        boolean done() {
+        boolean isCompleted() {
             return result != null;
         }
     }
@@ -70,7 +58,7 @@ public class IdempotencyService {
         try {
             result = action.get();
         } catch (RuntimeException e) {
-            // the request didn't happen (it rolled back), so let the client try again with the same key
+            // Release the claim when the action fails so the caller can retry.
             redis.delete(redisKey);
             throw e;
         }
@@ -81,14 +69,14 @@ public class IdempotencyService {
     private <T> Outcome<T> replay(String redisKey, String fingerprint, Class<T> type) {
         String stored = redis.opsForValue().get(redisKey);
         if (stored == null) {
-            // the claim expired between our SET NX and this GET - rare, and safe to just retry
+            // The claim may expire between SET NX and GET; ask the caller to retry.
             throw new ConflictException("Please retry this request.");
         }
         Entry entry = fromJson(stored, Entry.class);
         if (!entry.fingerprint().equals(fingerprint)) {
             throw new BusinessException("This Idempotency-Key was already used for a different request.");
         }
-        if (!entry.done()) {
+        if (!entry.isCompleted()) {
             throw new ConflictException("A request with this Idempotency-Key is still being processed.");
         }
         return new Outcome<>(fromJson(entry.result(), type), true);
