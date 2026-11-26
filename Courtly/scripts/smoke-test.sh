@@ -113,8 +113,19 @@ if [ ! -f .env ]; then
     touch .env
 fi
 
+# the image builds download Maven and every dependency from Maven Central, which
+# now and then answers 429 Too Many Requests on CI runners. that's not a failure
+# of the code under test, so give the build a few tries before giving up
+echo "Building images..."
+for attempt in 1 2 3; do
+    if "${COMPOSE[@]}" build; then break; fi
+    [ "$attempt" -eq 3 ] && fail "docker compose build failed 3 times"
+    echo "Build failed (attempt $attempt) - retrying in 30s..."
+    sleep 30
+done
+
 echo "Starting postgres + app..."
-"${COMPOSE[@]}" up -d --build
+"${COMPOSE[@]}" up -d
 
 echo "Waiting for the app to be healthy..."
 for i in $(seq 1 60); do
