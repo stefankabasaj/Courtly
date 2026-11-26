@@ -29,6 +29,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -70,7 +71,7 @@ class PaymentServiceTest {
     @Test
     @DisplayName("booking not found throws ResourceNotFoundException")
     void bookingNotFound_throws() {
-        when(bookingRepository.findByIdWithDetails(any())).thenReturn(Optional.empty());
+        when(bookingRepository.findByIdForPayment(any())).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> paymentService.processPayment(
                 UUID.randomUUID(), user.getId(), new PaymentRequest("CREDIT_CARD")))
@@ -80,7 +81,7 @@ class PaymentServiceTest {
     @Test
     @DisplayName("wrong owner gets 404, not a hint that the booking exists")
     void wrongOwner_throws() {
-        when(bookingRepository.findByIdWithDetails(pendingBooking.getId()))
+        when(bookingRepository.findByIdForPayment(pendingBooking.getId()))
                 .thenReturn(Optional.of(pendingBooking));
 
         UUID differentUser = UUID.randomUUID();
@@ -95,7 +96,7 @@ class PaymentServiceTest {
     @DisplayName("non-PENDING booking throws BusinessException")
     void nonPending_throws() {
         pendingBooking.setStatus(Booking.BookingStatus.CONFIRMED);
-        when(bookingRepository.findByIdWithDetails(pendingBooking.getId()))
+        when(bookingRepository.findByIdForPayment(pendingBooking.getId()))
                 .thenReturn(Optional.of(pendingBooking));
 
         assertThatThrownBy(() -> paymentService.processPayment(
@@ -107,7 +108,7 @@ class PaymentServiceTest {
     @Test
     @DisplayName("already paid throws ConflictException - idempotency")
     void alreadyPaid_throws() {
-        when(bookingRepository.findByIdWithDetails(pendingBooking.getId()))
+        when(bookingRepository.findByIdForPayment(pendingBooking.getId()))
                 .thenReturn(Optional.of(pendingBooking));
         when(paymentRepository.findByBookingId(pendingBooking.getId()))
                 .thenReturn(Optional.of(paymentWithStatus(Payment.PaymentStatus.SUCCESS)));
@@ -119,40 +120,47 @@ class PaymentServiceTest {
     }
 
     @Test
-    @DisplayName("processPayment - returns SUCCESS or FAILED with correct data")
-    void processPayment_returnsResult() {
-        when(bookingRepository.findByIdWithDetails(pendingBooking.getId()))
+    @DisplayName("approved payment confirms the booking and records the confirmation")
+    void approvedPayment() {
+        when(bookingRepository.findByIdForPayment(pendingBooking.getId()))
                 .thenReturn(Optional.of(pendingBooking));
-        when(paymentRepository.findByBookingId(pendingBooking.getId()))
-                .thenReturn(Optional.empty());
-        lenient().when(bookingRepository.save(any())).thenAnswer(i -> i.getArgument(0));
-        when(paymentRepository.save(any())).thenAnswer(i -> {
-            Payment p = i.getArgument(0);
-            p.setBooking(pendingBooking);
-            return p;
-        });
+        when(paymentRepository.findByBookingId(pendingBooking.getId())).thenReturn(Optional.empty());
+        when(paymentRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
-        PaymentResponse resp = paymentService.processPayment(
-                pendingBooking.getId(), user.getId(), new PaymentRequest("CREDIT_CARD"));
+        PaymentResponse response = processPaymentWithOutcome(0.0, "CREDIT_CARD");
 
-        assertThat(resp.bookingId()).isEqualTo(pendingBooking.getId());
-        assertThat(resp.amount()).isEqualByComparingTo("50.00");
-        assertThat(resp.status()).isIn("SUCCESS", "FAILED");
-        assertThat(resp.paymentMethod()).isEqualTo("CREDIT_CARD");
-        assertThat(metrics.counter("courtly.payments", "result", resp.status().toLowerCase()).count()).isEqualTo(1.0);
-        // the email only goes out for a payment that went through
-        if (resp.status().equals("SUCCESS")) {
-            verify(events).record(pendingBooking, BookingEventType.BOOKING_CONFIRMED);
-        } else {
-            verifyNoInteractions(events);
-        }
+        assertThat(response.bookingId()).isEqualTo(pendingBooking.getId());
+        assertThat(response.amount()).isEqualByComparingTo("50.00");
+        assertThat(response.status()).isEqualTo("SUCCESS");
+        assertThat(response.paymentMethod()).isEqualTo("CREDIT_CARD");
+        assertThat(response.failureReason()).isNull();
+        assertThat(pendingBooking.getStatus()).isEqualTo(Booking.BookingStatus.CONFIRMED);
+        verify(events).record(pendingBooking, BookingEventType.BOOKING_CONFIRMED);
+        assertThat(metrics.counter("courtly.payments", "result", "success").count()).isEqualTo(1.0);
+    }
+
+    @Test
+    @DisplayName("declined payment keeps the booking pending and records no confirmation")
+    void declinedPayment() {
+        when(bookingRepository.findByIdForPayment(pendingBooking.getId()))
+                .thenReturn(Optional.of(pendingBooking));
+        when(paymentRepository.findByBookingId(pendingBooking.getId())).thenReturn(Optional.empty());
+        when(paymentRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PaymentResponse response = processPaymentWithOutcome(0.99, "CREDIT_CARD");
+
+        assertThat(response.status()).isEqualTo("FAILED");
+        assertThat(response.failureReason()).isEqualTo("Card declined (simulated)");
+        assertThat(pendingBooking.getStatus()).isEqualTo(Booking.BookingStatus.PENDING);
+        verifyNoInteractions(events);
+        assertThat(metrics.counter("courtly.payments", "result", "failed").count()).isEqualTo(1.0);
     }
 
     @Test
     @DisplayName("payment window expired → BusinessException, nothing saved")
     void expiredWindow_throws() {
         pendingBooking.setCreatedAt(LocalDateTime.now().minusMinutes(16));
-        when(bookingRepository.findByIdWithDetails(pendingBooking.getId()))
+        when(bookingRepository.findByIdForPayment(pendingBooking.getId()))
                 .thenReturn(Optional.of(pendingBooking));
 
         assertThatThrownBy(() -> paymentService.processPayment(
@@ -171,25 +179,49 @@ class PaymentServiceTest {
     }
 
     @Test
-    @DisplayName("retry after a FAILED payment reuses the same payment row")
-    void retryAfterFailure_reusesPayment() {
+    @DisplayName("approved retry reuses the failed payment and clears its failure reason")
+    void approvedRetry() {
         Payment failed = paymentWithStatus(Payment.PaymentStatus.FAILED);
-        when(bookingRepository.findByIdWithDetails(pendingBooking.getId()))
+        when(bookingRepository.findByIdForPayment(pendingBooking.getId()))
                 .thenReturn(Optional.of(pendingBooking));
-        when(paymentRepository.findByBookingId(pendingBooking.getId()))
-                .thenReturn(Optional.of(failed));
-        lenient().when(bookingRepository.save(any())).thenAnswer(i -> i.getArgument(0));
-        when(paymentRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(paymentRepository.findByBookingId(pendingBooking.getId())).thenReturn(Optional.of(failed));
+        when(paymentRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
-        PaymentResponse resp = paymentService.processPayment(
-                pendingBooking.getId(), user.getId(), new PaymentRequest("DEBIT_CARD"));
+        PaymentResponse response = processPaymentWithOutcome(0.0, "DEBIT_CARD");
 
-        assertThat(resp.id()).isEqualTo(failed.getId());
-        assertThat(resp.paymentMethod()).isEqualTo("DEBIT_CARD");
-        assertThat(resp.status()).isIn("SUCCESS", "FAILED");
-        // a retry must never leave a stale failure reason on a successful payment
-        if (resp.status().equals("SUCCESS")) {
-            assertThat(resp.failureReason()).isNull();
+        assertThat(response.id()).isEqualTo(failed.getId());
+        assertThat(response.paymentMethod()).isEqualTo("DEBIT_CARD");
+        assertThat(response.status()).isEqualTo("SUCCESS");
+        assertThat(response.failureReason()).isNull();
+        assertThat(pendingBooking.getStatus()).isEqualTo(Booking.BookingStatus.CONFIRMED);
+        verify(events).record(pendingBooking, BookingEventType.BOOKING_CONFIRMED);
+    }
+
+    @Test
+    @DisplayName("declined retry reuses the failed payment and leaves the booking pending")
+    void declinedRetry() {
+        Payment failed = paymentWithStatus(Payment.PaymentStatus.FAILED);
+        when(bookingRepository.findByIdForPayment(pendingBooking.getId()))
+                .thenReturn(Optional.of(pendingBooking));
+        when(paymentRepository.findByBookingId(pendingBooking.getId())).thenReturn(Optional.of(failed));
+        when(paymentRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PaymentResponse response = processPaymentWithOutcome(0.99, "DEBIT_CARD");
+
+        assertThat(response.id()).isEqualTo(failed.getId());
+        assertThat(response.paymentMethod()).isEqualTo("DEBIT_CARD");
+        assertThat(response.status()).isEqualTo("FAILED");
+        assertThat(response.failureReason()).isEqualTo("Card declined (simulated)");
+        assertThat(pendingBooking.getStatus()).isEqualTo(Booking.BookingStatus.PENDING);
+        verifyNoInteractions(events);
+    }
+
+    private PaymentResponse processPaymentWithOutcome(double gatewayResult, String method) {
+        ThreadLocalRandom random = mock(ThreadLocalRandom.class);
+        when(random.nextDouble()).thenReturn(gatewayResult);
+        try (var source = mockStatic(ThreadLocalRandom.class)) {
+            source.when(ThreadLocalRandom::current).thenReturn(random);
+            return paymentService.processPayment(pendingBooking.getId(), user.getId(), new PaymentRequest(method));
         }
     }
 
