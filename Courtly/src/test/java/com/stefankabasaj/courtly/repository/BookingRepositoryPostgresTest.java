@@ -165,6 +165,46 @@ class BookingRepositoryPostgresTest extends PostgresRepositoryTest {
         }
     }
 
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DisplayName("payment read waits for the current payment transaction and sees its committed status")
+    void paymentReadWaitsForCommit() throws Exception {
+        TransactionTemplate tx = new TransactionTemplate(txManager);
+        UUID bookingId = tx.execute(status -> bookings.saveAndFlush(
+                booking(court, 18, 19, Booking.BookingStatus.PENDING)).getId());
+        CountDownLatch holding = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch secondStarted = new CountDownLatch(1);
+        try (var workers = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            var first = workers.submit(() -> tx.execute(status -> {
+                Booking current = bookings.findByIdForPayment(bookingId).orElseThrow();
+                current.setStatus(Booking.BookingStatus.CONFIRMED);
+                bookings.flush();
+                holding.countDown();
+                await(release);
+                return current.getStatus();
+            }));
+            try {
+                assertThat(holding.await(10, TimeUnit.SECONDS)).isTrue();
+                var second = workers.submit(() -> tx.execute(status -> {
+                    secondStarted.countDown();
+                    return bookings.findByIdForPayment(bookingId).orElseThrow().getStatus();
+                }));
+                assertThat(secondStarted.await(10, TimeUnit.SECONDS)).isTrue();
+                assertThatThrownBy(() -> second.get(250, TimeUnit.MILLISECONDS))
+                        .isInstanceOf(java.util.concurrent.TimeoutException.class);
+                release.countDown();
+                assertThat(first.get(10, TimeUnit.SECONDS)).isEqualTo(Booking.BookingStatus.CONFIRMED);
+                assertThat(second.get(10, TimeUnit.SECONDS)).isEqualTo(Booking.BookingStatus.CONFIRMED);
+            } finally {
+                release.countDown();
+            }
+        } finally {
+            jdbc.update("DELETE FROM courtly.bookings WHERE id = ?", bookingId);
+            jdbc.update("DELETE FROM courtly.users WHERE id = ?", user.getId());
+        }
+    }
+
     // @CreationTimestamp always sets "now" on insert, so backdate it with SQL
     private void makeOld(UUID bookingId) {
         jdbc.update("UPDATE courtly.bookings SET created_at = ? WHERE id = ?",
