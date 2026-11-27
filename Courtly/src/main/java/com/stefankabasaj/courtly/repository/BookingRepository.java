@@ -1,9 +1,11 @@
 package com.stefankabasaj.courtly.repository;
 
 import com.stefankabasaj.courtly.entity.Booking;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -15,6 +17,11 @@ import java.util.UUID;
 
 @Repository
 public interface BookingRepository extends JpaRepository<Booking, UUID> {
+
+    // Serialize payment attempts before reading either the booking or its payment.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT b FROM Booking b WHERE b.id = :id")
+    Optional<Booking> findByIdForPayment(@Param("id") UUID id);
 
     // JOIN FETCH pulls user + court in the same query. without it you either get
     // a LazyInitializationException or N+1 queries when looping over results
@@ -42,6 +49,8 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
         countQuery = "SELECT COUNT(b) FROM Booking b"
     )
     Page<Booking> findAllWithDetails(Pageable pageable);
+
+    long countByUserIdAndStatus(UUID userId, Booking.BookingStatus status);
 
     // overlap = startA < endB AND endA > startB. cancelled bookings don't count, the slot's free
     @Query("""

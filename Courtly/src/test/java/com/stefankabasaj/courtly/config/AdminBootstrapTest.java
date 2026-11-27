@@ -106,4 +106,13 @@ class AdminBootstrapTest {
                 .hasMessageContaining("bytes");
         verify(userRepository, never()).save(any());
     }
+
+    @Test
+    @DisplayName("refuses the placeholder password from .env.example")
+    void rejectsPlaceholderPassword() {
+        assertThatThrownBy(() -> bootstrap("admin@courtly.com", AdminBootstrap.PLACEHOLDER_PASSWORD).run(null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("placeholder");
+        verifyNoInteractions(userRepository);
+    }
 }

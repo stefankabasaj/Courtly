@@ -11,6 +11,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         AdminProperties.class,
         BookingProperties.class,
         OpeningHoursProperties.class,
-        LoginRateLimitProperties.class
+        LoginRateLimitProperties.class,
+        RegistrationRateLimitProperties.class
 })
 public class AppConfig {}

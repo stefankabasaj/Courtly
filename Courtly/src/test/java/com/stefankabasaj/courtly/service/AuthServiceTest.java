@@ -12,6 +12,7 @@ import com.stefankabasaj.courtly.exception.TooManyRequestsException;
 import com.stefankabasaj.courtly.security.IssuedToken;
 import com.stefankabasaj.courtly.security.JwtService;
 import com.stefankabasaj.courtly.security.LoginAttemptService;
+import com.stefankabasaj.courtly.security.RegistrationLimiter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.springframework.test.context.ActiveProfiles;
@@ -41,6 +42,7 @@ class AuthServiceTest {
     @Mock PasswordEncoder passwordEncoder;
     @Mock JwtService      jwtService;
     @Mock LoginAttemptService loginAttempts;
+    @Mock RegistrationLimiter registrationLimiter;
     @Spy  SimpleMeterRegistry metrics = new SimpleMeterRegistry();
     @InjectMocks AuthService authService;
 
@@ -59,7 +61,7 @@ class AuthServiceTest {
         });
 
         UserResponse resp = authService.register(
-                new RegisterRequest("stefan@courtly.com", "Password1!"));
+                new RegisterRequest("stefan@courtly.com", "Password1!"), IP);
 
         assertThat(resp.email()).isEqualTo("stefan@courtly.com");
         assertThat(resp.role()).isEqualTo("USER");
@@ -71,7 +73,7 @@ class AuthServiceTest {
         when(userRepository.existsByEmail("stefan@courtly.com")).thenReturn(true);
 
         assertThatThrownBy(() -> authService.register(
-                new RegisterRequest("stefan@courtly.com", "Password1!")))
+                new RegisterRequest("stefan@courtly.com", "Password1!"), IP))
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("already exists");
 
@@ -200,7 +202,7 @@ class AuthServiceTest {
 
         verify(loginAttempts).recordFailure("stefan@courtly.com", IP);
         verify(loginAttempts).recordFailure("nobody@courtly.com", IP);
-        verify(loginAttempts, never()).recordSuccess(any());
+        verify(loginAttempts, never()).recordSuccess(any(), any());
     }
 
     @Test
@@ -215,7 +217,7 @@ class AuthServiceTest {
 
         authService.login(new LoginRequest("stefan@courtly.com", "Password1!"), IP);
 
-        verify(loginAttempts).recordSuccess("stefan@courtly.com");
+        verify(loginAttempts).recordSuccess("stefan@courtly.com", IP);
         verify(loginAttempts, never()).recordFailure(any(), any());
     }
 
@@ -268,5 +270,16 @@ class AuthServiceTest {
         assertThat(metrics.counter("courtly.logins", "result", "success").count()).isEqualTo(1.0);
         assertThat(metrics.counter("courtly.logins", "result", "failed").count()).isEqualTo(1.0);
         assertThat(metrics.counter("courtly.logins", "result", "blocked").count()).isEqualTo(1.0);
+    }
+
+    @Test
+    @DisplayName("login - an unknown email still costs one BCrypt check, so timing doesn't reveal it")
+    void login_unknownEmail_stillHashes() {
+        when(userRepository.findByEmail("nobody@courtly.com")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.login(new LoginRequest("nobody@courtly.com", "wrong"), IP))
+                .isInstanceOf(BadCredentialsException.class);
+
+        verify(passwordEncoder).matches(eq("wrong"), anyString());
     }
 }

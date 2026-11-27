@@ -22,6 +22,8 @@ public class JwtService {
     private static final String CLAIM_USER_ID = "userId";
     private static final String CLAIM_ROLE    = "role";
 
+    static final String PLACEHOLDER_SECRET = "your-minimum-32-character-secret-key-here";
+
     private final SecretKey secretKey;
     private final long      expirationMs;
 
@@ -29,6 +31,11 @@ public class JwtService {
             @Value("${app.jwt.secret}") String secret,
             @Value("${app.jwt.expiration-ms}") long expirationMs
     ) {
+        // the value from .env.example is public - a token signed with it could be forged by anyone
+        if (secret.contains(PLACEHOLDER_SECRET)) {
+            throw new IllegalStateException(
+                    "JWT_SECRET is still the placeholder from .env.example. Generate one: openssl rand -base64 64");
+        }
         this.secretKey    = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         this.expirationMs = expirationMs;
     }

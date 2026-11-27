@@ -32,7 +32,7 @@ class LoginAttemptServiceTest {
 
     private final TestClock clock = new TestClock();
     private final LoginAttemptService service = new LoginAttemptService(
-            new LoginRateLimitProperties(3, 5, Duration.ofMinutes(15)),
+            new LoginRateLimitProperties(3, 5, 6, Duration.ofMinutes(15)),
             new InMemoryFailureCounter(clock));
 
     private void fail(String email, String ip, int times) {
@@ -70,10 +70,20 @@ class LoginAttemptServiceTest {
     }
 
     @Test
-    @DisplayName("the email stays blocked from another IP")
-    void emailLimitAcrossIps() {
+    @DisplayName("one IP's failures don't lock the account's owner out from their own IP")
+    void emailLimitIsPerIp() {
         fail(EMAIL, IP, 3);
-        assertThatThrownBy(() -> service.checkAllowed(EMAIL, "198.51.100.1"))
+        assertThatThrownBy(() -> service.checkAllowed(EMAIL, IP))
+                .isInstanceOf(TooManyRequestsException.class);
+        assertThatNoException().isThrownBy(() -> service.checkAllowed(EMAIL, "198.51.100.1"));
+    }
+
+    @Test
+    @DisplayName("an email guessed at from many IPs is blocked everywhere once the overall limit is hit")
+    void emailLimitAcrossAllIps() {
+        for (int i = 0; i < 6; i++) service.recordFailure(EMAIL, "198.51.100." + i);
+
+        assertThatThrownBy(() -> service.checkAllowed(EMAIL, "192.0.2.99"))
                 .isInstanceOf(TooManyRequestsException.class);
     }
 
@@ -99,7 +109,7 @@ class LoginAttemptServiceTest {
     @DisplayName("a success resets the email's counter")
     void successResets() {
         fail(EMAIL, IP, 2);
-        service.recordSuccess(EMAIL);
+        service.recordSuccess(EMAIL, IP);
         fail(EMAIL, IP, 2);
         assertThatNoException().isThrownBy(() -> service.checkAllowed(EMAIL, IP));
     }

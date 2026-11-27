@@ -32,6 +32,8 @@ export ADMIN_PASSWORD="$(openssl rand -hex 12)"
 # short enough not to drag the test out
 export BOOKING_PAYMENT_TIMEOUT=60s
 export BOOKING_EXPIRY_CHECK_INTERVAL_MS=2000
+# the test makes many bookings with one user; the per-user cap would get in the way
+export BOOKING_MAX_PENDING_PER_USER=1000
 # as if a frontend dev server ran on :3000
 export CORS_ALLOWED_ORIGINS=http://localhost:3000
 
@@ -111,8 +113,19 @@ if [ ! -f .env ]; then
     touch .env
 fi
 
+# the image builds download Maven and every dependency from Maven Central, which
+# now and then answers 429 Too Many Requests on CI runners. that's not a failure
+# of the code under test, so give the build a few tries before giving up
+echo "Building images..."
+for attempt in 1 2 3; do
+    if "${COMPOSE[@]}" build; then break; fi
+    [ "$attempt" -eq 3 ] && fail "docker compose build failed 3 times"
+    echo "Build failed (attempt $attempt) - retrying in 30s..."
+    sleep 30
+done
+
 echo "Starting postgres + app..."
-"${COMPOSE[@]}" up -d --build
+"${COMPOSE[@]}" up -d
 
 echo "Waiting for the app to be healthy..."
 for i in $(seq 1 60); do
@@ -129,7 +142,7 @@ grep -q "timezone Europe/Belgrade" <<<"$APP_LOGS" \
     || fail "app is not running in Europe/Belgrade (booking times would be off by 1-2h)"
 pass "app runs in the courts' time zone"
 
-[ "$(psql_smoke -tAc "SELECT count(*) FROM courtly.flyway_schema_history WHERE success" )" -ge 4 ] \
+[ "$(psql_smoke -tAc "SELECT count(*) FROM courtly.flyway_schema_history WHERE success" )" -ge 8 ] \
     || fail "not all migrations ran"
 [ "$(psql_smoke -tAc "SELECT count(*) FROM pg_indexes WHERE schemaname = 'courtly' AND indexname = 'idx_users_email'")" = "0" ] \
     || fail "V4 did not drop idx_users_email"
@@ -286,6 +299,14 @@ pass "same Idempotency-Key twice: one payment, the second answer is a replay"
 expect 400 "an Idempotency-Key can't be reused for another booking" -X POST "$BASE/payments/$REBOOKED_ID" \
     -H "Authorization: Bearer $USER_TOKEN" -H 'Content-Type: application/json' \
     -H "Idempotency-Key: $IDEM_KEY" -d '{"paymentMethod":"CREDIT_CARD"}'
+
+# --- admin cancels a paid booking: the payment is refunded --------------------------
+expect 200 "admin cancels the paid booking" -X PATCH "$BASE/bookings/$REBOOKED_ID/admin-cancel" \
+    -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
+    -d '{"reason":"court flooded"}'
+expect 200 "payment of the cancelled booking" "$BASE/payments/booking/$REBOOKED_ID" \
+    -H "Authorization: Bearer $USER_TOKEN"
+[ "$(jq -r .status <<<"$RESPONSE")" = "REFUNDED" ] || fail "paid booking cancelled by an admin was not refunded"
 
 # --- events: outbox, duplicates, dead letters --------------------------------------
 for i in $(seq 1 15); do

@@ -15,10 +15,14 @@ class BookingEmailsTest {
     private final BookingEmails emails = new BookingEmails();
 
     private BookingEvent event(String type, String reason, LocalDateTime payBy) {
+        return event(type, reason, payBy, null);
+    }
+
+    private BookingEvent event(String type, String reason, LocalDateTime payBy, Boolean refunded) {
         LocalDateTime start = LocalDateTime.of(2030, 6, 1, 10, 0);
         return new BookingEvent(UUID.randomUUID(), type, LocalDateTime.now(), UUID.randomUUID(),
                 "stefan@courtly.com", "Court A - Clay", start, start.plusHours(2),
-                new BigDecimal("50"), reason, payBy, null);
+                new BigDecimal("50"), reason, payBy, null, refunded);
     }
 
     @Test
@@ -71,5 +75,15 @@ class BookingEmailsTest {
     @DisplayName("an event type we don't know - no email")
     void unknownType() {
         assertThat(emails.compose(event("BOOKING_MOVED", null, null))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("cancelled after payment - says the money is being refunded")
+    void cancelledRefunded() {
+        assertThat(emails.compose(event("BOOKING_CANCELLED", "Court flooded", null, true)).orElseThrow().body())
+                .contains("Reason: Court flooded")
+                .contains("Your payment of €50.00 is being refunded");
+        assertThat(emails.compose(event("BOOKING_CANCELLED", "Court flooded", null)).orElseThrow().body())
+                .doesNotContain("refunded");
     }
 }

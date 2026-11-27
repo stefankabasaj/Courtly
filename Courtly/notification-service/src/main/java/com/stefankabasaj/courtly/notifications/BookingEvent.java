@@ -25,5 +25,6 @@ public record BookingEvent(
         BigDecimal totalPrice,
         String reason,
         LocalDateTime payBy,
-        String requestId    // the API request behind it; null for the API's own jobs
+        String requestId,   // the API request behind it; null for the API's own jobs
+        Boolean refunded    // CANCELLED only: true when the payment is being refunded; missing otherwise
 ) {}

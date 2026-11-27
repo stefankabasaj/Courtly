@@ -2,6 +2,7 @@ package com.stefankabasaj.courtly.event;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.stefankabasaj.courtly.config.AfterCommit;
 import com.stefankabasaj.courtly.config.BookingProperties;
 import com.stefankabasaj.courtly.config.RequestIdFilter;
 import com.stefankabasaj.courtly.entity.Booking;
@@ -32,14 +33,20 @@ import java.util.UUID;
 public class BookingEventRecorder {
 
     private final OutboxEventRepository outbox;
-    private final ObjectMapper          objectMapper;
-    private final BookingProperties     bookingProperties;
-    private final MeterRegistry         metrics;
+    private final ObjectMapper objectMapper;
+    private final BookingProperties bookingProperties;
+    private final MeterRegistry metrics;
 
     @Transactional(propagation = Propagation.MANDATORY)
     public void record(Booking booking, BookingEventType type) {
-        UUID          eventId = UUID.randomUUID();
-        LocalDateTime now     = LocalDateTime.now();
+        record(booking, type, false);
+    }
+
+    // Set refunded when a paid booking's money goes back, so the cancellation email can say so.
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void record(Booking booking, BookingEventType type, boolean refunded) {
+        UUID eventId = UUID.randomUUID();
+        LocalDateTime now = LocalDateTime.now();
 
         BookingEvent event = new BookingEvent(
                 eventId,
@@ -55,7 +62,9 @@ public class BookingEventRecorder {
                         ? booking.getCancellationReason() : null,
                 type == BookingEventType.BOOKING_CREATED && booking.getCreatedAt() != null
                         ? bookingProperties.payBy(booking.getCreatedAt()) : null,
-                MDC.get(RequestIdFilter.MDC_KEY)
+                MDC.get(RequestIdFilter.MDC_KEY),
+                // null rather than false, so the field only appears when it means something
+                refunded ? Boolean.TRUE : null
         );
 
         outbox.save(OutboxEvent.builder()
@@ -66,17 +75,16 @@ public class BookingEventRecorder {
                 .createdAt(now)
                 .build());
 
-        // every booking state change goes through here, so this one counter covers them all:
         // courtly_bookings_total{event="created|confirmed|cancelled|expired"}
-        metrics.counter("courtly.bookings", "event",
-                type.name().substring("BOOKING_".length()).toLowerCase(Locale.ROOT)).increment();
+        // counted after commit, so a rolled-back change isn't counted
+        String name = type.name().substring("BOOKING_".length()).toLowerCase(Locale.ROOT);
+        AfterCommit.run(() -> metrics.counter("courtly.bookings", "event", name).increment());
     }
 
     private String toJson(BookingEvent event) {
         try {
             return objectMapper.writeValueAsString(event);
         } catch (JsonProcessingException e) {
-            // a plain record of strings, numbers and dates - this can't really happen
             throw new IllegalStateException("Could not serialize " + event.type(), e);
         }
     }

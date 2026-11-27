@@ -12,6 +12,11 @@ spring:
   mail:
     host: ${MAIL_HOST:localhost}
     port: ${MAIL_PORT:1025}
+    properties:
+      # JavaMail waits forever by default - a hung mail server would block the Kafka consumer
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 10000
+      mail.smtp.writetimeout: 10000
 
   data:
     redis:

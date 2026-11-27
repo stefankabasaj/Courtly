@@ -14,8 +14,13 @@ import java.time.Duration;
  * even with the right password, otherwise the limit would tell an attacker
  * when they guessed it.
  *
- * - per email: stops guessing one account's password
- * - per IP:    stops one client trying a few passwords on many accounts
+ * - per email from one IP: stops guessing one account's password
+ * - per email from all IPs: a higher ceiling, against guessing spread over many IPs
+ * - per IP:                 stops one client trying a few passwords on many accounts
+ *
+ * The per-email limit is per IP on purpose: counted globally, a stranger could
+ * lock anyone out of their account just by typing a wrong password 5 times.
+ * Now that takes the higher all-IPs limit, i.e. many machines.
  *
  * The counters are in Redis (RedisFailureCounter), so all app instances share
  * them - with two instances behind a load balancer, in-memory counters would
@@ -32,8 +37,10 @@ public class LoginAttemptService {
     /** Throws TooManyRequestsException if this email or IP is currently blocked. */
     public void checkAllowed(String email, String ip) {
         long retryAfter = Math.max(
-                secondsBlocked(emailKey(email), limits.maxFailuresPerEmail()),
-                secondsBlocked(ipKey(ip),       limits.maxFailuresPerIp()));
+                Math.max(
+                        secondsBlocked(emailIpKey(email, ip), limits.maxFailuresPerEmail()),
+                        secondsBlocked(emailKey(email), limits.maxFailuresPerEmailAllIps())),
+                secondsBlocked(ipKey(ip), limits.maxFailuresPerIp()));
 
         if (retryAfter > 0) {
             log.warn("Login blocked email={} ip={} retryAfter={}s", email, ip, retryAfter);
@@ -44,12 +51,14 @@ public class LoginAttemptService {
     }
 
     public void recordFailure(String email, String ip) {
+        counter.increment(emailIpKey(email, ip), limits.window());
         counter.increment(emailKey(email), limits.window());
-        counter.increment(ipKey(ip),       limits.window());
+        counter.increment(ipKey(ip), limits.window());
     }
 
-    /** A successful login clears the email's counter. The IP counter keeps running. */
-    public void recordSuccess(String email) {
+    /** A successful login clears the email's counters. The IP counter keeps running. */
+    public void recordSuccess(String email, String ip) {
+        counter.reset(emailIpKey(email, ip));
         counter.reset(emailKey(email));
     }
 
@@ -65,12 +74,16 @@ public class LoginAttemptService {
         return "email:" + email;
     }
 
+    private static String emailIpKey(String email, String ip) {
+        return "email-ip:" + email + "|" + ip;
+    }
+
     private static String ipKey(String ip) {
         return "ip:" + ip;
     }
 
     private static String minutes(long seconds) {
-        long m = Math.max(1, (seconds + 59) / 60);
-        return m == 1 ? "1 minute" : m + " minutes";
+        long minutes = Math.max(1, (seconds + 59) / 60);
+        return minutes == 1 ? "1 minute" : minutes + " minutes";
     }
 }

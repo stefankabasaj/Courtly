@@ -8,8 +8,6 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.time.LocalDateTime;
 
-// pulled out of BookingService so the time rules sit in one place and can be
-// unit-tested on their own
 @Component
 @RequiredArgsConstructor
 public class BookingValidator {
@@ -23,7 +21,6 @@ public class BookingValidator {
         if (!end.isAfter(start)) {
             throw new BusinessException("End time must be after start time.");
         }
-        // full hours only - 10:30 starts just make everything messier
         if (!isOnTheHour(start)) {
             throw new BusinessException(
                     "Bookings must start exactly on the hour (e.g. 10:00, 14:00). Got: " + start);
@@ -38,7 +35,7 @@ public class BookingValidator {
                     "Booking duration must be between " + MIN_HOURS + " and " + MAX_HOURS +
                     " hours. Got: " + hours + "h.");
         }
-        // measured from the start's day, so a booking can't run past closing into the next day
+        // Use the start date for both boundaries so bookings cannot cross closing time.
         if (start.isBefore(openingHours.opensAt(start.toLocalDate()))
                 || end.isAfter(openingHours.closesAt(start.toLocalDate()))) {
             throw new BusinessException(
@@ -50,7 +47,7 @@ public class BookingValidator {
         return Duration.between(start, end).toHours();
     }
 
-    private static boolean isOnTheHour(LocalDateTime t) {
-        return t.getMinute() == 0 && t.getSecond() == 0 && t.getNano() == 0;
+    private static boolean isOnTheHour(LocalDateTime time) {
+        return time.getMinute() == 0 && time.getSecond() == 0 && time.getNano() == 0;
     }
 }

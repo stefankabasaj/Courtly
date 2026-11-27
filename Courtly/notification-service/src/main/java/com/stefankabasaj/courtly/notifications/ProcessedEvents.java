@@ -7,18 +7,14 @@ import java.time.Duration;
 import java.util.UUID;
 
 /**
- * Which events have already been emailed. Kafka delivers at least once, and
- * the API's outbox can send the same event twice (crash between the Kafka ack
- * and marking the row), so the same eventId can arrive more than once.
- *
- * A week is far longer than any redelivery takes. After that the key expires
- * by itself.
+ * Tracks sent event IDs for seven days to suppress duplicate deliveries.
+ * Replaying an event after its key expires can send the email again.
  */
 @Component
 public class ProcessedEvents {
 
-    static final String   KEY_PREFIX = "courtly:notifications:sent:";
-    static final Duration KEEP       = Duration.ofDays(7);
+    static final String KEY_PREFIX = "courtly:notifications:sent:";
+    static final Duration KEEP = Duration.ofDays(7);
 
     private final StringRedisTemplate redis;
 
