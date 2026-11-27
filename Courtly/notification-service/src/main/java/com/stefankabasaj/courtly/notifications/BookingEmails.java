@@ -8,17 +8,16 @@ import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import java.util.Optional;
 
-// turns a booking event into the email the player gets. plain text on purpose
 @Component
 public class BookingEmails {
 
     private static final DateTimeFormatter SHORT_DAY = DateTimeFormatter.ofPattern("EEE d MMM", Locale.ENGLISH);
-    private static final DateTimeFormatter LONG_DAY  = DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", Locale.ENGLISH);
-    private static final DateTimeFormatter TIME      = DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH);
+    private static final DateTimeFormatter LONG_DAY = DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", Locale.ENGLISH);
+    private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH);
 
-    public Optional<Email> compose(BookingEvent e) {
-        return Optional.ofNullable(switch (e.type()) {
-            case "BOOKING_CREATED" -> email(e, "Booking received", """
+    public Optional<Email> compose(BookingEvent event) {
+        return Optional.ofNullable(switch (event.type()) {
+            case "BOOKING_CREATED" -> createEmail(event, "Booking received", """
                     Hi,
 
                     We've got your booking:
@@ -28,9 +27,9 @@ public class BookingEmails {
                     %s
 
                     Courtly
-                    """.formatted(details(e), payReminder(e)));
+                    """.formatted(details(event), paymentReminder(event)));
 
-            case "BOOKING_CONFIRMED" -> email(e, "Booking confirmed", """
+            case "BOOKING_CONFIRMED" -> createEmail(event, "Booking confirmed", """
                     Hi,
 
                     Payment received - the court is yours.
@@ -40,9 +39,9 @@ public class BookingEmails {
                     See you on the court.
 
                     Courtly
-                    """.formatted(details(e)));
+                    """.formatted(details(event)));
 
-            case "BOOKING_CANCELLED" -> email(e, "Booking cancelled", """
+            case "BOOKING_CANCELLED" -> createEmail(event, "Booking cancelled", """
                     Hi,
 
                     Your booking has been cancelled.
@@ -50,9 +49,9 @@ public class BookingEmails {
                     %s
                     %s
                     Courtly
-                    """.formatted(details(e), reasonLine(e)));
+                    """.formatted(details(event), reasonLine(event)));
 
-            case "BOOKING_EXPIRED" -> email(e, "Booking released", """
+            case "BOOKING_EXPIRED" -> createEmail(event, "Booking released", """
                     Hi,
 
                     We didn't get a payment in time, so this booking was cancelled and the slot released:
@@ -62,36 +61,35 @@ public class BookingEmails {
                     If it's still free, you can book it again.
 
                     Courtly
-                    """.formatted(details(e)));
+                    """.formatted(details(event)));
 
-            default -> null;   // a type we don't send email for (yet)
+            default -> null; // Ignore event types introduced by newer API versions.
         });
     }
 
-    private Email email(BookingEvent e, String what, String body) {
-        // e.g. "Booking confirmed: Court A - Clay, Sat 1 Jun 10:00"
-        String subject = what + ": " + e.courtName() + ", "
-                + SHORT_DAY.format(e.startTime()) + " " + TIME.format(e.startTime());
-        return new Email(e.userEmail(), subject, body);
+    private Email createEmail(BookingEvent event, String subjectPrefix, String body) {
+        String subject = subjectPrefix + ": " + event.courtName() + ", "
+                + SHORT_DAY.format(event.startTime()) + " " + TIME.format(event.startTime());
+        return new Email(event.userEmail(), subject, body);
     }
 
-    private String details(BookingEvent e) {
-        return "  " + e.courtName() + "\n"
-             + "  " + LONG_DAY.format(e.startTime()) + ", "
-                    + TIME.format(e.startTime()) + "-" + TIME.format(e.endTime()) + "\n"
-             + "  " + price(e.totalPrice());
+    private String details(BookingEvent event) {
+        return "  " + event.courtName() + "\n"
+             + "  " + LONG_DAY.format(event.startTime()) + ", "
+                    + TIME.format(event.startTime()) + "-" + TIME.format(event.endTime()) + "\n"
+             + "  " + price(event.totalPrice());
     }
 
-    private String payReminder(BookingEvent e) {
-        if (e.payBy() == null) {
+    private String paymentReminder(BookingEvent event) {
+        if (event.payBy() == null) {
             return "Please pay soon to keep the slot - unpaid bookings are cancelled after a few minutes.";
         }
-        return "Please pay by " + TIME.format(e.payBy()) + " to keep the slot. "
+        return "Please pay by " + TIME.format(event.payBy()) + " to keep the slot. "
                 + "If it isn't paid by then, the booking is cancelled and the slot opens up again.";
     }
 
-    private String reasonLine(BookingEvent e) {
-        return e.reason() == null || e.reason().isBlank() ? "" : "\nReason: " + e.reason() + "\n";
+    private String reasonLine(BookingEvent event) {
+        return event.reason() == null || event.reason().isBlank() ? "" : "\nReason: " + event.reason() + "\n";
     }
 
     private static String price(BigDecimal amount) {

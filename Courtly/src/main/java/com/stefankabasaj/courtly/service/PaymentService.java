@@ -28,24 +28,23 @@ import java.util.concurrent.ThreadLocalRandom;
 @RequiredArgsConstructor
 public class PaymentService {
 
-    // fake gateway - succeeds 90% of the time. real version would call Stripe here
+    // Development gateway: a real payment integration would replace this simulation.
     private static final double SUCCESS_RATE = 0.9;
 
-    private final PaymentRepository    paymentRepository;
-    private final BookingRepository    bookingRepository;
-    private final BookingProperties    bookingProperties;
+    private final PaymentRepository paymentRepository;
+    private final BookingRepository bookingRepository;
+    private final BookingProperties bookingProperties;
     private final BookingEventRecorder events;
-    private final MeterRegistry        metrics;
+    private final MeterRegistry metrics;
 
     @Transactional
     public PaymentResponse processPayment(UUID bookingId, UUID payerId, PaymentRequest request) {
         log.info("Processing payment bookingId={} payerId={}", bookingId, payerId);
 
-        // WithDetails so getUser() below doesn't trip a lazy load
-        Booking booking = bookingRepository.findByIdWithDetails(bookingId)
+        Booking booking = bookingRepository.findByIdForPayment(bookingId)
                 .orElseThrow(() -> new ResourceNotFoundException("Booking", bookingId));
 
-        // can't pay for someone else's booking. 404 so we don't reveal it exists
+        // Hide bookings that belong to another user.
         if (!booking.getUser().getId().equals(payerId)) {
             throw new ResourceNotFoundException("Booking", bookingId);
         }
@@ -56,14 +55,13 @@ public class PaymentService {
                     "Current status: " + booking.getStatus());
         }
 
-        // BookingExpiryJob cancels these within a minute; this closes that gap
+        // Enforce the deadline even before the next expiry job runs.
         if (isPaymentWindowExpired(booking)) {
             throw new BusinessException(
                     "The payment window for this booking has expired. Please book again.");
         }
 
-        // a booking has at most one payment row (unique constraint). a FAILED one is
-        // reused for the retry, otherwise a declined card would lock the booking forever
+        // Reuse failed payment rows: the unique constraint allows only one per booking.
         Payment payment = paymentRepository.findByBookingId(bookingId).orElse(null);
         if (payment != null && payment.getStatus() == Payment.PaymentStatus.SUCCESS) {
             throw new ConflictException("Payment has already been processed for this booking.");
@@ -99,7 +97,6 @@ public class PaymentService {
         Booking booking = bookingRepository.findByIdWithDetails(bookingId)
                 .orElseThrow(() -> new ResourceNotFoundException("Booking", bookingId));
 
-        // payment details belong to the booking's owner (or an admin)
         if (!principal.canAccess(booking.getUser().getId())) {
             throw new ResourceNotFoundException("Booking", bookingId);
         }
@@ -115,16 +112,16 @@ public class PaymentService {
                 && bookingProperties.payBy(booking.getCreatedAt()).isBefore(LocalDateTime.now());
     }
 
-    private PaymentResponse toResponse(Payment p) {
+    private PaymentResponse toResponse(Payment payment) {
         return new PaymentResponse(
-                p.getId(),
-                p.getBooking().getId(),
-                p.getAmount(),
-                p.getStatus().name(),
-                p.getPaymentMethod(),
-                p.getFailureReason(),
-                p.getCreatedAt(),
-                p.getProcessedAt()
+                payment.getId(),
+                payment.getBooking().getId(),
+                payment.getAmount(),
+                payment.getStatus().name(),
+                payment.getPaymentMethod(),
+                payment.getFailureReason(),
+                payment.getCreatedAt(),
+                payment.getProcessedAt()
         );
     }
 }

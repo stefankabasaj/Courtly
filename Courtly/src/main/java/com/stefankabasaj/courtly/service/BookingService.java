@@ -36,27 +36,25 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class BookingService {
 
-    // must cancel at least this many hours ahead
     private static final int CANCEL_NOTICE_HOURS = 2;
 
-    private final BookingRepository    bookingRepository;
-    private final CourtRepository      courtRepository;
-    private final UserRepository       userRepository;
-    private final BookingValidator     bookingValidator;
+    private final BookingRepository bookingRepository;
+    private final CourtRepository courtRepository;
+    private final UserRepository userRepository;
+    private final BookingValidator bookingValidator;
     private final BookingEventRecorder events;
-    private final BookingProperties    bookingProperties;
+    private final BookingProperties bookingProperties;
 
     @Transactional
     public BookingResponse createBooking(UUID userId, BookingRequest request) {
         log.info("Creating booking userId={} courtId={}", userId, request.courtId());
 
-        User  user  = userRepository.findById(userId)
+        User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", userId));
         Court court = courtRepository.findById(request.courtId())
                 .orElseThrow(() -> new ResourceNotFoundException("Court", request.courtId()));
 
-        // tokens are checked without a DB hit, so a deactivated user's token keeps
-        // working until it expires. at least don't let it create new bookings
+        // JWT authentication does not check account status in the database.
         if (!user.isActive()) {
             throw new BusinessException("This account has been deactivated. Please contact support.");
         }
@@ -66,8 +64,7 @@ public class BookingService {
 
         bookingValidator.validateBookingTimes(request.startTime(), request.endTime());
 
-        // app-level check first for a clean error message.
-        // the exclusion constraint in the DB (V2 migration) catches the race-condition case
+        // Give a useful error here; the database constraint handles concurrent requests.
         if (bookingRepository.existsOverlappingBooking(
                 request.courtId(), request.startTime(), request.endTime())) {
             throw new ConflictException(
@@ -76,7 +73,7 @@ public class BookingService {
                     ". Please choose a different time.");
         }
 
-        long       hours = bookingValidator.durationHours(request.startTime(), request.endTime());
+        long hours = bookingValidator.durationHours(request.startTime(), request.endTime());
         BigDecimal total = court.getPricePerHour().multiply(BigDecimal.valueOf(hours));
 
         Booking booking = Booking.builder()
@@ -88,9 +85,7 @@ public class BookingService {
                 .status(Booking.BookingStatus.PENDING)
                 .build();
 
-        // flush now: Hibernate fills in createdAt/updatedAt at the INSERT, and the
-        // response (and payBy in it) needs them. a race on the slot also fails
-        // here, as a 409, instead of at commit
+        // Flush before building the response so timestamps and the payment deadline are available.
         Booking saved = bookingRepository.saveAndFlush(booking);
         events.record(saved, BookingEventType.BOOKING_CREATED);
         log.info("Booking created id={} totalPrice={}", saved.getId(), saved.getTotalPrice());
@@ -109,8 +104,7 @@ public class BookingService {
     public BookingResponse getBookingById(UUID bookingId, AuthenticatedUser principal) {
         Booking booking = findOrThrow(bookingId);
 
-        // admins see everything, normal users only their own.
-        // 404 not 403 on purpose - 403 would leak that the booking exists
+        // Return 404 for other users' bookings to avoid revealing that they exist.
         if (!principal.canAccess(booking.getUser().getId())) {
             throw new ResourceNotFoundException("Booking", bookingId);
         }
@@ -124,14 +118,13 @@ public class BookingService {
         log.info("User {} cancelling booking {}", userId, bookingId);
         Booking booking = findOrThrow(bookingId);
 
-        // 404 not 400/403 - same reasoning as getBookingById, don't reveal other people's bookings
         if (!booking.getUser().getId().equals(userId)) {
             throw new ResourceNotFoundException("Booking", bookingId);
         }
         if (booking.getStatus() == Booking.BookingStatus.CANCELLED) {
             throw new BusinessException("This booking is already cancelled.");
         }
-        // paid bookings can't be self-cancelled - that's a refund, which we handle via support
+        // Paid bookings need support because self-service refunds are not implemented.
         if (booking.getStatus() == Booking.BookingStatus.CONFIRMED) {
             throw new BusinessException(
                     "Paid bookings cannot be cancelled through the app. Please contact support.");
@@ -142,15 +135,10 @@ public class BookingService {
                     " hours in advance.");
         }
 
-        booking.setStatus(Booking.BookingStatus.CANCELLED);
-        booking.setCancellationReason(
-                request != null && StringUtils.hasText(request.reason())
-                        ? request.reason().trim()
-                        : "Cancelled by user");
-
-        // flush so updatedAt in the response is the new one
-        Booking saved = bookingRepository.saveAndFlush(booking);
-        events.record(saved, BookingEventType.BOOKING_CANCELLED);
+        String reason = request != null && StringUtils.hasText(request.reason())
+                ? request.reason().trim()
+                : "Cancelled by user";
+        Booking saved = cancelAndRecord(booking, reason);
         log.info("Booking {} cancelled by user {}", bookingId, userId);
         return toResponse(saved);
     }
@@ -171,14 +159,19 @@ public class BookingService {
             throw new BusinessException("This booking is already cancelled.");
         }
 
-        booking.setStatus(Booking.BookingStatus.CANCELLED);
-        booking.setCancellationReason(request.reason());
-
-        // flush so updatedAt in the response is the new one
-        Booking saved = bookingRepository.saveAndFlush(booking);
-        events.record(saved, BookingEventType.BOOKING_CANCELLED);
+        Booking saved = cancelAndRecord(booking, request.reason());
         log.info("Booking {} admin-cancelled", bookingId);
         return toResponse(saved);
+    }
+
+    private Booking cancelAndRecord(Booking booking, String reason) {
+        booking.setStatus(Booking.BookingStatus.CANCELLED);
+        booking.setCancellationReason(reason);
+
+        // The response needs the updated timestamp before the transaction commits.
+        Booking saved = bookingRepository.saveAndFlush(booking);
+        events.record(saved, BookingEventType.BOOKING_CANCELLED);
+        return saved;
     }
 
     private Booking findOrThrow(UUID id) {
@@ -186,8 +179,7 @@ public class BookingService {
                 .orElseThrow(() -> new ResourceNotFoundException("Booking", id));
     }
 
-    // one rule for both "can this be cancelled?" (the response flag) and the actual
-    // cancel - they used to disagree at exactly CANCEL_NOTICE_HOURS before the start
+    // Share the boundary rule with the response flag, including exactly two hours' notice.
     private boolean hasEnoughNoticeToCancel(Booking booking) {
         return !LocalDateTime.now().plusHours(CANCEL_NOTICE_HOURS).isAfter(booking.getStartTime());
     }
@@ -197,27 +189,27 @@ public class BookingService {
                 && hasEnoughNoticeToCancel(booking);
     }
 
-    BookingResponse toResponse(Booking b) {
-        long hours = bookingValidator.durationHours(b.getStartTime(), b.getEndTime());
+    BookingResponse toResponse(Booking booking) {
+        long hours = bookingValidator.durationHours(booking.getStartTime(), booking.getEndTime());
         return new BookingResponse(
-                b.getId(),
-                b.getUser().getId(),
-                b.getUser().getEmail(),
-                b.getCourt().getId(),
-                b.getCourt().getName(),
-                b.getCourt().getSurface().name(),
-                b.getStartTime(),
-                b.getEndTime(),
+                booking.getId(),
+                booking.getUser().getId(),
+                booking.getUser().getEmail(),
+                booking.getCourt().getId(),
+                booking.getCourt().getName(),
+                booking.getCourt().getSurface().name(),
+                booking.getStartTime(),
+                booking.getEndTime(),
                 hours,
-                b.getCourt().getPricePerHour(),
-                b.getTotalPrice(),
-                b.getStatus().name(),
-                b.getCancellationReason(),
-                isCancellable(b),
-                b.getStatus() == Booking.BookingStatus.PENDING && b.getCreatedAt() != null
-                        ? bookingProperties.payBy(b.getCreatedAt()) : null,
-                b.getCreatedAt(),
-                b.getUpdatedAt()
+                booking.getCourt().getPricePerHour(),
+                booking.getTotalPrice(),
+                booking.getStatus().name(),
+                booking.getCancellationReason(),
+                isCancellable(booking),
+                booking.getStatus() == Booking.BookingStatus.PENDING && booking.getCreatedAt() != null
+                        ? bookingProperties.payBy(booking.getCreatedAt()) : null,
+                booking.getCreatedAt(),
+                booking.getUpdatedAt()
         );
     }
 }

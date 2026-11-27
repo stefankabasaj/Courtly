@@ -36,9 +36,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (header != null && header.startsWith(BEARER_PREFIX)
                 && SecurityContextHolder.getContext().getAuthentication() == null) {
 
-            // everything we need is already in the token, so no DB lookup.
-            // an invalid token just leaves the request unauthenticated and the
-            // security chain answers 401
+            // Invalid tokens leave the request unauthenticated; the security chain handles the response.
             jwtService.parseToken(header.substring(BEARER_PREFIX.length()))
                     .ifPresent(principal -> authenticate(principal, request));
         }
@@ -47,12 +45,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     }
 
     private void authenticate(AuthenticatedUser principal, HttpServletRequest request) {
-        var auth = new UsernamePasswordAuthenticationToken(
+        var authentication = new UsernamePasswordAuthenticationToken(
                 principal,
                 null,
                 List.of(new SimpleGrantedAuthority("ROLE_" + principal.role()))
         );
-        auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-        SecurityContextHolder.getContext().setAuthentication(auth);
+        authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+        SecurityContextHolder.getContext().setAuthentication(authentication);
     }
 }

@@ -33,7 +33,7 @@ public class LoginAttemptService {
     public void checkAllowed(String email, String ip) {
         long retryAfter = Math.max(
                 secondsBlocked(emailKey(email), limits.maxFailuresPerEmail()),
-                secondsBlocked(ipKey(ip),       limits.maxFailuresPerIp()));
+                secondsBlocked(ipKey(ip), limits.maxFailuresPerIp()));
 
         if (retryAfter > 0) {
             log.warn("Login blocked email={} ip={} retryAfter={}s", email, ip, retryAfter);
@@ -45,7 +45,7 @@ public class LoginAttemptService {
 
     public void recordFailure(String email, String ip) {
         counter.increment(emailKey(email), limits.window());
-        counter.increment(ipKey(ip),       limits.window());
+        counter.increment(ipKey(ip), limits.window());
     }
 
     /** A successful login clears the email's counter. The IP counter keeps running. */
@@ -70,7 +70,7 @@ public class LoginAttemptService {
     }
 
     private static String minutes(long seconds) {
-        long m = Math.max(1, (seconds + 59) / 60);
-        return m == 1 ? "1 minute" : m + " minutes";
+        long minutes = Math.max(1, (seconds + 59) / 60);
+        return minutes == 1 ? "1 minute" : minutes + " minutes";
     }
 }
